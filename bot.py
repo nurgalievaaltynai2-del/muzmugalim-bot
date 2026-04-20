@@ -73,7 +73,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("⏳ Жасап жатырмын...")
     try:
         response = client.models.generate_content(
-            model="gemini-1.5-flash",
+            model="gemini-2.0-flash",
             contents=SYSTEM_PROMPT + "\n\nМұғалім сұрады: " + user_message
         )
         await update.message.reply_text(response.text)
