@@ -25,14 +25,14 @@ SYSTEM_PROMPT = """Сен — MuzMugalim Bot, Қазақстандағы муз�
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
-        [InlineKeyboardButton("🏫 Мектеп", callback_data="mektep"),
-         InlineKeyboardButton("🎪 Балабақша", callback_data="balabaqsha")],
-        [InlineKeyboardButton("💰 Тариф", callback_data="tarif")]
+        [InlineKeyboardButton("🏫 Мектеп 📚", callback_data="mektep")],
+        [InlineKeyboardButton("🎪 Балабақша 🎈", callback_data="balabaqsha")],
+        [InlineKeyboardButton("💰 Тариф 💳", callback_data="tarif")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
-        "🎵 Сәлем, ұстаз! MuzMugalim Bot-қа қош келдіңіз!\n\n"
-        "Не жасауға көмек керек?",
+        "🎵 Сәлем, ұстаз! 🎶 MuzMugalim Bot-қа қош келдіңіз! 🌟\n\n"
+        "Не жасауға көмек керек? 🤔",
         reply_markup=reply_markup
     )
 
