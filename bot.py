@@ -1,7 +1,7 @@
 import os
 import logging
 from dotenv import load_dotenv
-import google.genai as genai
+from google import genai
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 
@@ -13,8 +13,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel("gemini-2.5-flash")
+client = genai.Client(api_key=GEMINI_API_KEY)
 
 SYSTEM_PROMPT = """Сен — MuzMugalim Bot, Қазақстандағы музыка мұғалімдеріне арналған AI көмекші.
 Қазақша жауап бер. Мұғалімдерге сабақ материалдары жасауға көмектес."""
@@ -68,8 +67,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text
     await update.message.reply_text("⏳ Жасап жатырмын...")
     try:
-        response = model.generate_content(
-            SYSTEM_PROMPT + "\n\nМұғалім сұрады: " + user_message
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=SYSTEM_PROMPT + "\n\nМұғалім сұрады: " + user_message
         )
         await update.message.reply_text(response.text)
     except Exception as e:
@@ -83,6 +83,5 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.run_polling()
 
-if __name__== "__main__":
-
+if __name__ == "__main__":
     main()
