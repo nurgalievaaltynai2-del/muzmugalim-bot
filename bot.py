@@ -1,7 +1,7 @@
 import os
 import logging
 from dotenv import load_dotenv
-import google.generativeai as genai
+import google.genai as genai
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 
