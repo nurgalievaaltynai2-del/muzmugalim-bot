@@ -13,6 +13,11 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+if not TELEGRAM_TOKEN:
+    raise ValueError("TELEGRAM_BOT_TOKEN орнатылмаған")
+if not GEMINI_API_KEY:
+    raise ValueError("GEMINI_API_KEY орнатылмаған")
+
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 SYSTEM_PROMPT = """Сен — MuzMugalim Bot, Қазақстандағы музыка мұғалімдеріне арналған AI көмекші.
@@ -68,13 +73,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("⏳ Жасап жатырмын...")
     try:
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-1.5-flash",
             contents=SYSTEM_PROMPT + "\n\nМұғалім сұрады: " + user_message
         )
         await update.message.reply_text(response.text)
     except Exception as e:
-        logger.error(f"Error: {e}")
-        await update.message.reply_text("⚠️ Қате болды, қайта жіберіңіз.")
+        logger.error(f"Gemini қатесі: {e}", exc_info=True)
+        await update.message.reply_text(f"⚠️ Қате болды: {e}")
 
 def main():
     app = Application.builder().token(TELEGRAM_TOKEN).build()
