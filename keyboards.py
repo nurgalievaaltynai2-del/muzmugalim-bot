@@ -1,5 +1,6 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from config import SECTIONS, PAGE_SIZE, TARIFFS
+
+from config import SECTIONS, PAGE_SIZE, TARIFFS, PLAN_RANK
 
 
 def main_menu_kb() -> InlineKeyboardMarkup:
@@ -10,19 +11,22 @@ def main_menu_kb() -> InlineKeyboardMarkup:
     ])
 
 
-def material_list_kb(section: str, page: int) -> InlineKeyboardMarkup:
+def material_list_kb(section: str, page: int, user_plan: str = "free") -> InlineKeyboardMarkup:
     materials = SECTIONS[section]["materials"]
     total = len(materials)
     total_pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
     start = page * PAGE_SIZE
     end = min(start + PAGE_SIZE, total)
+    user_rank = PLAN_RANK.get(user_plan, 0)
 
     rows = []
     for idx in range(start, end):
-        rows.append([InlineKeyboardButton(
-            f"{idx + 1}. {materials[idx]}",
-            callback_data=f"material:{section}:{idx}"
-        )])
+        mat = materials[idx]
+        locked = PLAN_RANK[mat.min_plan] > user_rank
+        type_icon = {"poster": "🖼️ ", "music": "🎵 "}.get(mat.mtype, "")
+        lock_icon = "🔒 " if locked else ""
+        label = f"{lock_icon}{type_icon}{idx + 1}. {mat.name}"
+        rows.append([InlineKeyboardButton(label, callback_data=f"material:{section}:{idx}")])
 
     nav = []
     if page > 0:
@@ -45,5 +49,12 @@ def back_to_list_kb(section: str, page: int) -> InlineKeyboardMarkup:
 
 def tarif_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🏠 Басты мәзір", callback_data="main_menu")],
+    ])
+
+
+def upgrade_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("💰 Тариф көру", callback_data="tarif")],
         [InlineKeyboardButton("🏠 Басты мәзір", callback_data="main_menu")],
     ])

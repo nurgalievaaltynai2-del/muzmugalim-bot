@@ -10,13 +10,20 @@ from telegram.ext import (
     filters,
 )
 
-from handlers import start_command, activate_command, button_handler, text_message_handler
+from handlers import (
+    start_command,
+    activate_command,
+    stats_command,
+    users_command,
+    button_handler,
+    text_message_handler,
+)
 
 load_dotenv()
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO
+    level=logging.INFO,
 )
 
 
@@ -26,8 +33,11 @@ def main():
         raise ValueError("TELEGRAM_BOT_TOKEN орнатылмаған")
 
     app = Application.builder().token(token).build()
+
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("activate", activate_command))
+    app.add_handler(CommandHandler("stats", stats_command))
+    app.add_handler(CommandHandler("users", users_command))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_message_handler))
 
