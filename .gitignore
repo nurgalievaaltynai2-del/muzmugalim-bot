@@ -2,3 +2,8 @@
 __pycache__/
 *.pyc
 .venv/
+muzmugalim.db
+*.db
+bot_output.txt
+test*.pdf
+.claude/
