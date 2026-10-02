@@ -48,6 +48,9 @@ MEKTEP_MATERIALS = [
     Material("Ата-анаға хат",      MType.TEXT,   "basic",    "Письмо родителям"),
     Material("Викторина",          MType.TEXT,   "basic",    "Викторина"),
     Material("Кросворд",           MType.TEXT,   "basic",    "Кроссворд"),
+    Material("📜 Композитор биографиясы", MType.TEXT, "basic", "Биография композитора"),
+    Material("🎹 Аспап таныстыру",        MType.TEXT, "basic", "Знакомство с инструментом"),
+    Material("📊 Оқушы бағалау парағы",   MType.TEXT, "basic", "Оценочный лист ученика"),
     # ── Standard ──
     Material("Сурет",              MType.POSTER, "standard", "Рисунок DALL-E 3"),
     Material("Портфолио",          MType.TEXT,   "standard", "Портфолио"),
