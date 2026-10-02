@@ -120,26 +120,9 @@ TARIF_CARDS = {
         "▸ Балабақша: Музыка терапия\n"
         "▸ Бейімдеу · Даму картасы"
     ),
-    "full": (
-        "👑 ══════════════════ 👑\n"
-        "         *ТОЛЫҚ*\n"
-        "   ━━━━━━━━━━━━━━━━\n"
-        "       *14 990 ₸/ай*\n"
-        "👑 ══════════════════ 👑\n\n"
-        "✅ Премиумның *БАРЛЫҒЫ* +\n\n"
-        "🎵 *Музыка — 20/ай*\n"
-        "🎨 *Сурет — 100/ай*\n"
-        "🎭 *Барлық сценарийлер:*\n"
-        "▸ Наурыз · Жаңа жыл · 8 Наурыз\n"
-        "▸ 1 Маусым · Туған күн · Бітіру\n"
-        "▸ Ертегі · Музыкалық ертегі\n"
-        "▸ Қуыршақ театры · Утренник\n"
-        "▸ Ашық есік · Ата-ана жиналысы\n"
-        "▸ Мектеп + Балабақша ТОЛЫҚ"
-    ),
 }
 
-_PLAN_ICON = {"free": "🆓", "basic": "🥉", "standard": "🥈", "premium": "🥇", "full": "👑"}
+_PLAN_ICON = {"free": "🆓", "basic": "🥉", "standard": "🥈", "premium": "🥇"}
 _TYPE_ICONS = {MType.TEXT: "📝", MType.POSTER: "🖼️", MType.MUSIC: "🎵"}
 _TYPE_PROMPTS = {
     MType.TEXT:   "✏️ *Тақырыпты жазыңыз / Введите тему*\n\n_Мысалы: «Домбыра», «Моцарт», «Ән жанрлары»_",
@@ -858,7 +841,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "basic": "Базалық",
             "standard": "Стандарт",
             "premium": "Премиум",
-            "full": "Толық / Полный",
         }.get(plan_filter, plan_filter)
         await query.edit_message_text(
             f"📢 *{filter_name}* қолданушыларға хабарлама жіберіледі.\n\n"
@@ -874,13 +856,12 @@ async def _show_payment(query, update, context, plan: str):
     tariff = TARIFFS[plan]
     name = tariff["name"]
     price = tariff["price"]
-    plan_icon = {"basic": "🥉", "standard": "🥈", "premium": "🥇", "full": "👑"}.get(plan, "💎")
+    plan_icon = {"basic": "🥉", "standard": "🥈", "premium": "🥇"}.get(plan, "💎")
 
     features = {
         "basic":    "📝 Мәтін — шексіз\n   └ Мектеп: 21 + Балабақша: 27 материал",
         "standard": "📝 Мәтін — шексіз\n   └ 🖼️ Постер — 30/ай\n   └ 📁 Портфолио",
         "premium":  "📝 Мәтін — шексіз\n   └ 🖼️ Постер — 50/ай\n   └ 🎵 Музыка MP3 — 10/ай",
-        "full":     "📝🖼️🎵 Барлығы + Сценарийлер + Конкурс",
     }
 
     text = (

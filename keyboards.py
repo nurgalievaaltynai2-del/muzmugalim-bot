@@ -6,7 +6,7 @@ from config import SECTIONS, PAGE_SIZE, TARIFFS, PLAN_RANK, MType
 _WHATSAPP_NUMBER = "77073078874"
 _WHATSAPP_URL = f"https://wa.me/{_WHATSAPP_NUMBER}"
 
-_PLAN_ICON = {"free": "🆓", "basic": "🥉", "standard": "🥈", "premium": "🥇", "full": "👑"}
+_PLAN_ICON = {"free": "🆓", "basic": "🥉", "standard": "🥈", "premium": "🥇"}
 _TYPE_ICON = {"text": "📝", "poster": "🖼️", "music": "🎵"}
 
 
@@ -220,9 +220,6 @@ def broadcast_kb() -> InlineKeyboardMarkup:
             InlineKeyboardButton("🥉 Базалық",             callback_data="broadcast:basic"),
             InlineKeyboardButton("🥈 Стандарт",            callback_data="broadcast:standard"),
         ],
-        [
-            InlineKeyboardButton("🥇 Премиум",             callback_data="broadcast:premium"),
-            InlineKeyboardButton("👑 Толық",               callback_data="broadcast:full"),
-        ],
+        [InlineKeyboardButton("🥇 Премиум",             callback_data="broadcast:premium")],
         [InlineKeyboardButton("‹ Артқа / Назад",           callback_data="admin_panel")],
     ])
