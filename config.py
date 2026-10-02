@@ -9,7 +9,7 @@ class MType(str, Enum):
     MUSIC = "music"
 
 
-PLAN_RANK = {"free": 0, "basic": 1, "standard": 2, "premium": 3, "full": 4}  # free kept for DB compat
+PLAN_RANK = {"free": 0, "basic": 1, "standard": 2, "premium": 3}  # free kept for DB compat
 
 PAGE_SIZE = 8
 
@@ -55,10 +55,6 @@ MEKTEP_MATERIALS = [
     Material("Музыка MP3",         MType.MUSIC,  "premium",  "Музыка MP3 Suno"),
     Material("Рефлексия",          MType.TEXT,   "premium",  "Рефлексия"),
     Material("Дифф. тапсырма",     MType.TEXT,   "premium",  "Дифф. задание"),
-    # ── Full ──
-    Material("Мерекелік сценарий", MType.TEXT,   "full",     "Праздничный сценарий"),
-    Material("Конкурс жоспары",    MType.TEXT,   "full",     "План конкурса"),
-    Material("Флешмоб сценарийі",  MType.TEXT,   "full",     "Флешмоб"),
 ]
 
 # ─── Балабақша: 46 materials (47 features) ───────────────────────────────────
@@ -101,20 +97,6 @@ BALABAQSHA_MATERIALS = [
     Material("Музыка терапия",    MType.TEXT,   "premium",  "Музыкотерапия"),
     Material("Бейімдеу",          MType.TEXT,   "premium",  "Адаптация"),
     Material("Даму картасы",      MType.TEXT,   "premium",  "Карта развития"),
-    # ── Full (13 scenarios) ──
-    Material("Мерекелік сценарий",MType.TEXT,   "full",     "Праздничный сценарий"),
-    Material("Наурыз сценарийі",  MType.TEXT,   "full",     "Сценарий Наурыз"),
-    Material("Жаңа жыл",          MType.TEXT,   "full",     "Новый год"),
-    Material("8 Наурыз",          MType.TEXT,   "full",     "8 Марта"),
-    Material("1 Маусым",          MType.TEXT,   "full",     "1 Июня"),
-    Material("Туған күн",         MType.TEXT,   "full",     "День рождения"),
-    Material("Ертегі",            MType.TEXT,   "full",     "Сказка"),
-    Material("Музыкалық ертегі",  MType.TEXT,   "full",     "Музыкальная сказка"),
-    Material("Қуыршақ театры",    MType.TEXT,   "full",     "Кукольный театр"),
-    Material("Бітіру",            MType.TEXT,   "full",     "Выпускной"),
-    Material("Утренник",          MType.TEXT,   "full",     "Утренник"),
-    Material("Ашық есік",         MType.TEXT,   "full",     "День открытых дверей"),
-    Material("Ата-ана жиналысы",  MType.TEXT,   "full",     "Родительское собрание"),
 ]
 
 SECTIONS = {
@@ -126,10 +108,9 @@ SECTIONS = {
 # text/poster/music: None = unlimited, 0 = no access, N = monthly limit
 
 TARIFFS = {
-    "basic":    {"name": "Базалық",  "price": 4490,  "text": None, "poster": 0,    "music": 0},
-    "standard": {"name": "Стандарт", "price": 6990,  "text": None, "poster": 30,   "music": 0},
-    "premium":  {"name": "Премиум",  "price": 10990, "text": None, "poster": 50,   "music": 10},
-    "full":     {"name": "Толық",    "price": 14990, "text": None, "poster": 100,  "music": 20},
+    "basic":    {"name": "Базалық",  "price": 6990,  "text": None, "poster": 0,    "music": 0},
+    "standard": {"name": "Стандарт", "price": 8990,  "text": None, "poster": 30,   "music": 0},
+    "premium":  {"name": "Премиум",  "price": 14990, "text": None, "poster": 50,   "music": 10},
 }
 
 ADMIN_ID = int(os.getenv("ADMIN_CHAT_ID", "0"))
