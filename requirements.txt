@@ -4,4 +4,3 @@ openai
 python-dotenv
 httpx
 fpdf2
-psycopg2-binary
