@@ -1,19 +1,19 @@
 import os
-import psycopg2
-import psycopg2.extras
+import sqlite3
 from datetime import datetime, date, timedelta
 from contextlib import contextmanager
 
 from config import TARIFFS
 
-_DATABASE_URL = os.getenv("DATABASE_URL", "")
+_DB_PATH = os.getenv("DB_PATH", "muzmugalim.db")
 _HISTORY_LIMIT = 10
 _FAVORITES_LIMIT = 20
 
 
 @contextmanager
 def _conn():
-    conn = psycopg2.connect(_DATABASE_URL)
+    conn = sqlite3.connect(_DB_PATH)
+    conn.row_factory = sqlite3.Row
     try:
         yield conn
         conn.commit()
@@ -24,354 +24,271 @@ def _conn():
         conn.close()
 
 
-def _cur(conn):
-    return conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-
-
 def _row(r) -> dict:
     return dict(r) if r else {}
 
 
 def init_db():
     with _conn() as conn:
-        c = _cur(conn)
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                user_id      BIGINT PRIMARY KEY,
-                username     TEXT,
-                first_name   TEXT,
-                last_name    TEXT,
-                plan         TEXT NOT NULL DEFAULT 'free',
-                activated_at TEXT,
-                expires_at   TEXT,
-                reset_month  TEXT NOT NULL DEFAULT '',
-                text_used    INTEGER NOT NULL DEFAULT 0,
-                poster_used  INTEGER NOT NULL DEFAULT 0,
-                music_used   INTEGER NOT NULL DEFAULT 0,
-                text_total   INTEGER NOT NULL DEFAULT 0,
-                poster_total INTEGER NOT NULL DEFAULT 0,
-                music_total  INTEGER NOT NULL DEFAULT 0,
-                first_seen   TEXT NOT NULL,
-                last_seen    TEXT NOT NULL
-            )
-        """)
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS history (
-                id            SERIAL PRIMARY KEY,
-                user_id       BIGINT NOT NULL REFERENCES users(user_id),
-                section       TEXT NOT NULL,
-                material_name TEXT NOT NULL,
-                material_type TEXT NOT NULL,
-                topic         TEXT NOT NULL,
-                result        TEXT,
-                created_at    TEXT NOT NULL
-            )
-        """)
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS favorites (
-                id            SERIAL PRIMARY KEY,
-                user_id       BIGINT NOT NULL REFERENCES users(user_id),
-                section       TEXT NOT NULL,
-                material_name TEXT NOT NULL,
-                material_type TEXT NOT NULL,
-                topic         TEXT NOT NULL,
-                result        TEXT,
-                created_at    TEXT NOT NULL
-            )
-        """)
-
-
-def _month_key() -> str:
-    return date.today().replace(day=1).isoformat()
-
-
-def _now() -> str:
-    return datetime.utcnow().isoformat()
-
-
-def _reset_if_new_month(conn, user_id: int):
-    mk = _month_key()
-    c = _cur(conn)
-    c.execute("SELECT reset_month FROM users WHERE user_id=%s", (user_id,))
-    row = c.fetchone()
-    if row and row["reset_month"] != mk:
-        c.execute(
-            "UPDATE users SET text_used=0, poster_used=0, music_used=0, reset_month=%s "
-            "WHERE user_id=%s",
-            (mk, user_id),
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS users ("
+            "user_id INTEGER PRIMARY KEY,"
+            "username TEXT,"
+            "first_name TEXT,"
+            "last_name TEXT,"
+            "plan TEXT DEFAULT 'free',"
+            "plan_expires DATE,"
+            "usage_month TEXT DEFAULT '',"
+            "usage_text INTEGER DEFAULT 0,"
+            "usage_image INTEGER DEFAULT 0,"
+            "usage_audio INTEGER DEFAULT 0,"
+            "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+            ")"
+        )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS history ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            "user_id INTEGER,"
+            "mtype TEXT,"
+            "prompt TEXT,"
+            "result TEXT,"
+            "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+            ")"
+        )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS favorites ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            "user_id INTEGER,"
+            "hist_id INTEGER,"
+            "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+            ")"
         )
 
 
-def ensure_user(tg_user) -> dict:
-    now = _now()
-    mk = _month_key()
+def _month_key():
+    return date.today().strftime("%Y-%m")
+
+
+def _now():
+    return datetime.now()
+
+
+def _reset_if_new_month(conn, user_id):
+    cur = conn.execute("SELECT usage_month FROM users WHERE user_id=?", (user_id,))
+    row = cur.fetchone()
+    if row and row["usage_month"] != _month_key():
+        conn.execute(
+            "UPDATE users SET usage_month=?, usage_text=0, usage_image=0, usage_audio=0 WHERE user_id=?",
+            (_month_key(), user_id)
+        )
+
+
+def ensure_user(tg_user):
     with _conn() as conn:
-        c = _cur(conn)
-        c.execute("SELECT * FROM users WHERE user_id=%s", (tg_user.id,))
-        row = c.fetchone()
-        if row is None:
-            c.execute(
-                "INSERT INTO users (user_id, username, first_name, last_name, "
-                "plan, reset_month, first_seen, last_seen) VALUES (%s, %s, %s, %s, 'free', %s, %s, %s)",
-                (tg_user.id, tg_user.username, tg_user.first_name,
-                 getattr(tg_user, "last_name", None), mk, now, now),
+        cur = conn.execute("SELECT user_id FROM users WHERE user_id=?", (tg_user.id,))
+        if not cur.fetchone():
+            conn.execute(
+                "INSERT INTO users (user_id, username, first_name, last_name, usage_month) VALUES (?,?,?,?,?)",
+                (tg_user.id, tg_user.username, tg_user.first_name, tg_user.last_name, _month_key())
             )
         else:
-            c.execute(
-                "UPDATE users SET username=%s, first_name=%s, last_name=%s, last_seen=%s "
-                "WHERE user_id=%s",
-                (tg_user.username, tg_user.first_name,
-                 getattr(tg_user, "last_name", None), now, tg_user.id),
+            conn.execute(
+                "UPDATE users SET username=?, first_name=?, last_name=? WHERE user_id=?",
+                (tg_user.username, tg_user.first_name, tg_user.last_name, tg_user.id)
             )
-            _reset_if_new_month(conn, tg_user.id)
-        c.execute("SELECT * FROM users WHERE user_id=%s", (tg_user.id,))
-        return _row(c.fetchone())
 
 
-def check_quota(user_id: int, mtype: str) -> tuple:
+def check_quota(user_id, mtype):
     with _conn() as conn:
         _reset_if_new_month(conn, user_id)
-        c = _cur(conn)
-        c.execute("SELECT * FROM users WHERE user_id=%s", (user_id,))
-        row = c.fetchone()
+        cur = conn.execute(
+            "SELECT plan, plan_expires, usage_text, usage_image, usage_audio FROM users WHERE user_id=?",
+            (user_id,)
+        )
+        row = cur.fetchone()
         if not row:
-            return False, "Пайдаланушы табылмады"
+            return False
         plan = row["plan"]
-        lim = TARIFFS[plan][mtype]
-        used = row[f"{mtype}_used"]
-
-        if mtype == "text":
-            if plan == "free" and lim is not None and used >= lim:
-                return False, (
-                    f"⚠️ Тегін лимит аяқталды ({lim} сұраныс).\n\n"
-                    "Жалғастыру үшін тариф таңдаңыз 👇"
-                )
-        elif mtype == "poster":
-            if lim == 0:
-                return False, "no_poster_access"
-            if lim is not None and used >= lim:
-                return False, f"⚠️ Постер лимиті аяқталды ({lim}/ай).\n_Лимит постеров исчерпан._"
-        elif mtype == "music":
-            if lim == 0:
-                return False, "no_music_access"
-            if lim is not None and used >= lim:
-                return False, f"⚠️ Музыка лимиті аяқталды ({lim}/ай).\n_Лимит музыки исчерпан._"
-    return True, ""
+        if plan != "free" and row["plan_expires"]:
+            if date.today() > date.fromisoformat(str(row["plan_expires"])):
+                plan = "free"
+        limits = TARIFFS.get(plan, TARIFFS["free"])
+        used = row["usage_" + mtype]
+        limit = limits.get(mtype, 0)
+        return used < limit
 
 
-def get_remaining(user_id: int, mtype: str) -> tuple:
+def get_remaining(user_id, mtype):
     with _conn() as conn:
-        c = _cur(conn)
-        c.execute("SELECT * FROM users WHERE user_id=%s", (user_id,))
-        row = c.fetchone()
+        _reset_if_new_month(conn, user_id)
+        cur = conn.execute(
+            "SELECT plan, plan_expires, usage_text, usage_image, usage_audio FROM users WHERE user_id=?",
+            (user_id,)
+        )
+        row = cur.fetchone()
         if not row:
-            return 0, 0
+            return 0
         plan = row["plan"]
-        lim = TARIFFS[plan][mtype]
-        used = row[f"{mtype}_used"]
-        return used, lim
+        if plan != "free" and row["plan_expires"]:
+            if date.today() > date.fromisoformat(str(row["plan_expires"])):
+                plan = "free"
+        limits = TARIFFS.
+get(plan, TARIFFS["free"])
+        used = row["usage_" + mtype]
+        limit = limits.get(mtype, 0)
+        return max(0, limit - used)
 
 
-def record_usage(user_id: int, mtype: str):
+def record_usage(user_id, mtype):
     with _conn() as conn:
-        c = _cur(conn)
-        c.execute(
-            f"UPDATE users SET {mtype}_used={mtype}_used+1, {mtype}_total={mtype}_total+1 "
-            "WHERE user_id=%s",
-            (user_id,),
+        _reset_if_new_month(conn, user_id)
+        conn.execute(
+            "UPDATE users SET usage_" + mtype + "=usage_" + mtype + "+1 WHERE user_id=?",
+            (user_id,)
         )
 
 
-def save_history(user_id: int, section: str, material_name: str,
-                 material_type: str, topic: str, result: str) -> int:
+def save_history(user_id, mtype, prompt, result):
     with _conn() as conn:
-        c = _cur(conn)
-        c.execute(
-            "INSERT INTO history (user_id, section, material_name, material_type, "
-            "topic, result, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id",
-            (user_id, section, material_name, material_type, topic, result[:4000], _now()),
+        conn.execute(
+            "INSERT INTO history (user_id, mtype, prompt, result) VALUES (?,?,?,?)",
+            (user_id, mtype, prompt, result)
         )
-        hist_id = c.fetchone()["id"]
-        c.execute(
-            "DELETE FROM history WHERE user_id=%s AND id NOT IN "
-            "(SELECT id FROM history WHERE user_id=%s ORDER BY id DESC LIMIT %s)",
-            (user_id, user_id, _HISTORY_LIMIT),
+        cur = conn.execute(
+            "SELECT id FROM history WHERE user_id=? ORDER BY created_at DESC LIMIT -1 OFFSET ?",
+            (user_id, _HISTORY_LIMIT)
         )
-        return hist_id
+        old = [r["id"] for r in cur.fetchall()]
+        if old:
+            placeholders = ",".join("?" * len(old))
+            conn.execute("DELETE FROM history WHERE id IN (" + placeholders + ")", old)
 
 
-def get_history(user_id: int) -> list:
+def get_history(user_id):
     with _conn() as conn:
-        c = _cur(conn)
-        c.execute(
-            "SELECT * FROM history WHERE user_id=%s ORDER BY id DESC LIMIT %s",
-            (user_id, _HISTORY_LIMIT),
+        cur = conn.execute(
+            "SELECT id, mtype, prompt, created_at FROM history WHERE user_id=? ORDER BY created_at DESC LIMIT ?",
+            (user_id, _HISTORY_LIMIT)
         )
-        return [_row(r) for r in c.fetchall()]
+        return [_row(r) for r in cur.fetchall()]
 
 
-def get_history_item(hist_id: int, user_id: int) -> dict:
+def get_history_item(hist_id, user_id):
     with _conn() as conn:
-        c = _cur(conn)
-        c.execute("SELECT * FROM history WHERE id=%s AND user_id=%s", (hist_id, user_id))
-        return _row(c.fetchone())
-
-
-def add_favorite(user_id: int, hist_id: int) -> tuple:
-    with _conn() as conn:
-        c = _cur(conn)
-        c.execute("SELECT COUNT(*) as cnt FROM favorites WHERE user_id=%s", (user_id,))
-        count = c.fetchone()["cnt"]
-        if count >= _FAVORITES_LIMIT:
-            return False, f"⚠️ Таңдаулылар толы (макс {_FAVORITES_LIMIT}).\n_Избранное заполнено._"
-        c.execute("SELECT * FROM history WHERE id=%s AND user_id=%s", (hist_id, user_id))
-        hist = c.fetchone()
-        if not hist:
-            return False, "⚠️ Тарих табылмады."
-        c.execute(
-            "SELECT id FROM favorites WHERE user_id=%s AND material_name=%s AND topic=%s",
-            (user_id, hist["material_name"], hist["topic"]),
+        cur = conn.execute(
+            "SELECT * FROM history WHERE id=? AND user_id=?",
+            (hist_id, user_id)
         )
-        if c.fetchone():
-            return False, "⭐ Бұрын сақталған!\n_Уже в избранном!_"
-        c.execute(
-            "INSERT INTO favorites (user_id, section, material_name, material_type, "
-            "topic, result, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s)",
-            (user_id, hist["section"], hist["material_name"], hist["material_type"],
-             hist["topic"], hist["result"], _now()),
+        return _row(cur.fetchone())
+
+
+def add_favorite(user_id, hist_id):
+    with _conn() as conn:
+        cur = conn.execute(
+            "SELECT id FROM favorites WHERE user_id=? AND hist_id=?",
+            (user_id, hist_id)
         )
-        return True, "⭐ Таңдаулыларға сақталды!\n_Добавлено в избранное!_"
+        if cur.fetchone():
+            return False
+        cur2 = conn.execute(
+            "SELECT COUNT(*) as c FROM favorites WHERE user_id=?",
+            (user_id,)
+        )
+        if cur2.fetchone()["c"] >= _FAVORITES_LIMIT:
+            return False
+        conn.execute(
+            "INSERT INTO favorites (user_id, hist_id) VALUES (?,?)",
+            (user_id, hist_id)
+        )
+        return True
 
 
-def remove_favorite(user_id: int, fav_id: int):
+def remove_favorite(user_id, fav_id):
     with _conn() as conn:
-        c = _cur(conn)
-        c.execute("DELETE FROM favorites WHERE id=%s AND user_id=%s", (fav_id, user_id))
+        conn.execute(
+            "DELETE FROM favorites WHERE id=? AND user_id=?",
+            (fav_id, user_id)
+        )
 
 
-def get_favorites(user_id: int) -> list:
+def get_favorites(user_id):
     with _conn() as conn:
-        c = _cur(conn)
-        c.execute("SELECT * FROM favorites WHERE user_id=%s ORDER BY id DESC", (user_id,))
-        return [_row(r) for r in c.fetchall()]
+        cur = conn.execute(
+            "SELECT f.id, h.mtype, h.prompt, f.created_at"
+            " FROM favorites f JOIN history h ON f.hist_id=h.id"
+            " WHERE f.user_id=? ORDER BY f.created_at DESC",
+            (user_id,)
+        )
+        return [_row(r) for r in cur.fetchall()]
 
 
-def get_favorite_item(fav_id: int, user_id: int) -> dict:
+def get_favorite_item(fav_id, user_id):
     with _conn() as conn:
-        c = _cur(conn)
-        c.execute("SELECT * FROM favorites WHERE id=%s AND user_id=%s", (fav_id, user_id))
-        return _row(c.fetchone())
+        cur = conn.execute(
+            "SELECT h.* FROM favorites f JOIN history h ON f.hist_id=h.id"
+            " WHERE f.id=? AND f.user_id=?",
+            (fav_id, user_id)
+        )
+        return _row(cur.fetchone())
 
 
-def activate_plan(user_id: int, plan: str, days: int = 30) -> bool:
-    if plan not in TARIFFS:
-        return False
-    now = datetime.utcnow()
-    expires = (now + timedelta(days=days)).isoformat()
-    mk = _month_key()
+def activate_plan(user_id, plan, days=30):
+    expires = date.today() + timedelta(days=days)
     with _conn() as conn:
-        c = _cur(conn)
-        c.execute("SELECT user_id FROM users WHERE user_id=%s", (user_id,))
-        row = c.fetchone()
-        if not row:
-            c.execute(
-                "INSERT INTO users (user_id, plan, activated_at, expires_at, reset_month, "
-                "first_seen, last_seen) VALUES (%s, %s, %s, %s, %s, %s, %s)",
-                (user_id, plan, now.isoformat(), expires, mk, now.isoformat(), now.isoformat()),
-            )
+        conn.execute(
+            "UPDATE users SET plan=?, plan_expires=? WHERE user_id=?",
+            (plan, expires.isoformat(), user_id)
+        )
+
+
+def get_expiring_users(days=3):
+    target = date.today() + timedelta(days=days)
+    with _conn() as conn:
+        cur = conn.execute(
+            "SELECT user_id, first_name, plan, plan_expires FROM users WHERE plan_expires=?",
+            (target.isoformat(),)
+        )
+        return [_row(r) for r in cur.fetchall()]
+
+
+def downgrade_expired_users():
+    with _conn() as conn:
+        conn.execute(
+            "UPDATE users SET plan='free' WHERE plan_expires < ? AND plan != 'free'",
+            (date.today().isoformat(),)
+        )
+
+
+def get_stats():
+    with _conn() as conn:
+        cur = conn.execute("SELECT COUNT(*) as total FROM users")
+        total = cur.fetchone()["total"]
+        cur2 = conn.execute("SELECT COUNT(*) as paid FROM users WHERE plan != 'free'")
+        paid = cur2.fetchone()["paid"]
+        cur3 = conn.
+execute("SELECT SUM(usage_text+usage_image+usage_audio) as reqs FROM users")
+        reqs = cur3.fetchone()["reqs"] or 0
+        return {"total_users": total, "paid_users": paid, "total_requests": reqs}
+
+
+def get_all_users(limit=20):
+    with _conn() as conn:
+        cur = conn.execute(
+            "SELECT user_id, username, first_name, plan, plan_expires,"
+            " usage_text, usage_image, usage_audio"
+            " FROM users ORDER BY created_at DESC LIMIT ?",
+            (limit,)
+        )
+        return [_row(r) for r in cur.fetchall()]
+
+
+def get_users_for_broadcast(plan_filter="all"):
+    with _conn() as conn:
+        if plan_filter == "all":
+            cur = conn.execute("SELECT user_id FROM users")
         else:
-            c.execute(
-                "UPDATE users SET plan=%s, activated_at=%s, expires_at=%s, "
-                "text_used=0, poster_used=0, music_used=0, reset_month=%s WHERE user_id=%s",
-                (plan, now.isoformat(), expires, mk, user_id),
+            cur = conn.execute(
+                "SELECT user_id FROM users WHERE plan=?",
+                (plan_filter,)
             )
-    return True
-
-
-def get_expiring_users(days: int = 3) -> list:
-    target = (datetime.utcnow() + timedelta(days=days)).date().isoformat()
-    with _conn() as conn:
-        c = _cur(conn)
-        c.execute(
-            "SELECT * FROM users WHERE plan != 'free' AND expires_at IS NOT NULL "
-            "AND LEFT(expires_at, 10) = %s",
-            (target,),
-        )
-        return [_row(r) for r in c.fetchall()]
-
-
-def downgrade_expired_users() -> list:
-    today = datetime.utcnow().date().isoformat()
-    with _conn() as conn:
-        c = _cur(conn)
-        c.execute(
-            "SELECT user_id FROM users WHERE plan NOT IN ('free','basic') "
-            "AND expires_at IS NOT NULL AND LEFT(expires_at, 10) < %s",
-            (today,),
-        )
-        ids = [r["user_id"] for r in c.fetchall()]
-        if ids:
-            c.execute(
-                "UPDATE users SET plan='basic', expires_at=NULL WHERE user_id = ANY(%s)",
-                (ids,),
-            )
-        return ids
-
-
-def get_stats() -> dict:
-    with _conn() as conn:
-        c = _cur(conn)
-        c.execute("SELECT COUNT(*) as cnt FROM users")
-        total = c.fetchone()["cnt"]
-        plan_counts = {p: 0 for p in TARIFFS}
-        for p in TARIFFS:
-            c.execute("SELECT COUNT(*) as cnt FROM users WHERE plan=%s", (p,))
-            plan_counts[p] = c.fetchone()["cnt"]
-        c.execute("SELECT COALESCE(SUM(text_total),0) as cnt FROM users")
-        text_total = c.fetchone()["cnt"]
-        c.execute("SELECT COALESCE(SUM(poster_total),0) as cnt FROM users")
-        poster_total = c.fetchone()["cnt"]
-        c.execute("SELECT COALESCE(SUM(music_total),0) as cnt FROM users")
-        music_total = c.fetchone()["cnt"]
-        today_str = date.today().isoformat()
-        c.execute(
-            "SELECT COUNT(*) as cnt FROM history WHERE LEFT(created_at,10)=%s", (today_str,)
-        )
-        today_gen = c.fetchone()["cnt"]
-        month_prefix = date.today().strftime("%Y-%m")
-        revenue = 0
-        for plan, data in TARIFFS.items():
-            if plan == "free" or not data["price"]:
-                continue
-            c.execute(
-                "SELECT COUNT(*) as cnt FROM users WHERE plan=%s AND activated_at IS NOT NULL "
-                "AND LEFT(activated_at,7)=%s",
-                (plan, month_prefix),
-            )
-            revenue += c.fetchone()["cnt"] * data["price"]
-    return {
-        "total_users": total,
-        "plan_counts": plan_counts,
-        "text_total": text_total,
-        "poster_total": poster_total,
-        "music_total": music_total,
-        "today_gen": today_gen,
-        "revenue": revenue,
-    }
-
-
-def get_all_users(limit: int = 20) -> list:
-    with _conn() as conn:
-        c = _cur(conn)
-        c.execute("SELECT * FROM users ORDER BY last_seen DESC LIMIT %s", (limit,))
-        return [_row(r) for r in c.fetchall()]
-
-
-def get_users_for_broadcast(plan_filter: str = "all") -> list:
-    with _conn() as conn:
-        c = _cur(conn)
-        if plan_filter != "all":
-            c.execute("SELECT user_id FROM users WHERE plan=%s", (plan_filter,))
-        else:
-            c.execute("SELECT user_id FROM users")
-        return [r["user_id"] for r in c.fetchall()]
+        return [r["user_id"] for r in cur.fetchall()]
