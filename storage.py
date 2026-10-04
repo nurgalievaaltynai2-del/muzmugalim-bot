@@ -153,3 +153,12 @@ def get_users_for_broadcast():
     with get_conn() as conn:
         rows = conn.execute("SELECT user_id FROM users").fetchall()
         return [r[0] for r in rows]
+def get_history_item(user_id, item_id):
+    with get_conn() as conn:
+        row = conn.execute("SELECT id, role, content FROM history WHERE id=? AND user_id=?", (item_id, user_id)).fetchone()
+        return {"id": row[0], "role": row[1], "content": row[2]} if row else None
+
+def get_favorite_item(user_id, item_id):
+    with get_conn() as conn:
+        row = conn.execute("SELECT id, content FROM favorites WHERE id=? AND user_id=?", (item_id, user_id)).fetchone()
+        return {"id": row[0], "content": row[1]} if row else None
