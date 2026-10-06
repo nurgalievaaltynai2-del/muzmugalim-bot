@@ -957,8 +957,14 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     page = context.user_data.get("page", 0)
 
     allowed, reason = check_quota(uid, material_type)
-    if not allowed and reason not in ("no_poster_access", "no_music_access"):
-        await update.message.reply_text(reason, reply_markup=upgrade_kb())
+    if not allowed:
+        if reason == "no_poster_access":
+            reason = f"🔒 Постер генерациясы *{TARIFFS['standard']['name']}* тарифінен."
+        elif reason == "no_music_access":
+            reason = f"🔒 Музыка MP3 *{TARIFFS['premium']['name']}* тарифінен."
+        await update.message.reply_text(
+            reason, reply_markup=upgrade_kb(), parse_mode="Markdown"
+        )
         return
 
     if material_type == MType.TEXT:

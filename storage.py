@@ -128,10 +128,11 @@ def check_quota(user_id: int, mtype: str) -> tuple:
         used = row[f"{mtype}_used"]
 
         if mtype == "text":
-            if plan == "free" and lim is not None and used >= lim:
+            if plan not in TARIFFS:
                 return False, (
-                    f"⚠️ Тегін лимит аяқталды ({lim} сұраныс).\n\n"
-                    "Жалғастыру үшін тариф таңдаңыз 👇"
+                    "🔒 Белсенді тариф жоқ.\n"
+                    "Жалғастыру үшін тариф таңдаңыз 👇\n\n"
+                    "_Нет активного тарифа. Выберите тариф._"
                 )
         elif mtype == "poster":
             if lim == 0:
@@ -253,10 +254,21 @@ def activate_plan(user_id: int, plan: str, days: int = 30) -> bool:
     if plan not in TARIFFS:
         return False
     now = datetime.utcnow()
-    expires = (now + timedelta(days=days)).isoformat()
     mk = _month_key()
     with _conn() as conn:
-        row = conn.execute("SELECT user_id FROM users WHERE user_id=?", (user_id,)).fetchone()
+        row = conn.execute(
+            "SELECT user_id, plan, expires_at FROM users WHERE user_id=?", (user_id,)
+        ).fetchone()
+        # Renewal of the same still-active plan adds days on top of the remaining time
+        start = now
+        if row and row["plan"] == plan and row["expires_at"]:
+            try:
+                current_exp = datetime.fromisoformat(row["expires_at"])
+                if current_exp > now:
+                    start = current_exp
+            except ValueError:
+                pass
+        expires = (start + timedelta(days=days)).isoformat()
         if not row:
             conn.execute(
                 "INSERT INTO users (user_id, plan, activated_at, expires_at, reset_month, "
@@ -284,19 +296,22 @@ def get_expiring_users(days: int = 3) -> list:
 
 
 def downgrade_expired_users() -> list:
-    """Downgrade expired paid plans to basic. Returns list of affected user_ids."""
-    today = datetime.utcnow().date().isoformat()
+    """Move every expired paid plan (basic/standard/premium) to 'free' (no access).
+
+    Returns list of affected user_ids.
+    """
+    now = _now()
     with _conn() as conn:
         rows = conn.execute(
-            "SELECT user_id, plan FROM users WHERE plan NOT IN ('free','basic') "
-            "AND expires_at IS NOT NULL AND substr(expires_at, 1, 10) < ?",
-            (today,),
+            "SELECT user_id FROM users WHERE plan != 'free' "
+            "AND expires_at IS NOT NULL AND expires_at < ?",
+            (now,),
         ).fetchall()
         ids = [r["user_id"] for r in rows]
         if ids:
             placeholders = ",".join("?" * len(ids))
             conn.execute(
-                f"UPDATE users SET plan='basic', expires_at=NULL WHERE user_id IN ({placeholders})",
+                f"UPDATE users SET plan='free', expires_at=NULL WHERE user_id IN ({placeholders})",
                 ids,
             )
         return ids

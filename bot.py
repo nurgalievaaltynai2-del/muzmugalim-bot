@@ -49,9 +49,9 @@ async def _error_handler(update, context):
     logging.getLogger(__name__).error("Unhandled error", exc_info=context.error)
 
 
-async def _expiry_job(context):
-    """Daily job: notify users expiring in 3 days, downgrade expired ones."""
-    from storage import get_expiring_users, downgrade_expired_users
+async def _reminder_job(context):
+    """Daily job: notify users whose tariff expires in 3 days."""
+    from storage import get_expiring_users
 
     for user in get_expiring_users(days=3):
         try:
@@ -73,15 +73,20 @@ async def _expiry_job(context):
         except Exception:
             pass
 
+
+async def _expiry_job(context):
+    """Hourly job: remove access of users whose tariff has expired."""
+    from storage import downgrade_expired_users
+
     for uid in downgrade_expired_users():
         try:
             await context.bot.send_message(
                 uid,
                 "ℹ️ *Тариф мерзімі аяқталды.*\n\n"
-                "Тарифіңіз *Базалық*-қа ауысты.\n"
+                "Жалғастыру үшін тарифты жаңартыңыз.\n"
                 "Жаңарту үшін @muzmugalim-ге хабарласыңыз.\n\n"
                 "ℹ️ *Срок тарифа истёк.*\n"
-                "Ваш тариф переключён на *Базовый*.\n"
+                "Для продолжения продлите тариф.\n"
                 "Для продления обратитесь @muzmugalim",
                 parse_mode="Markdown",
             )
@@ -115,9 +120,10 @@ def main():
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_message_handler))
 
-    # Daily expiry check job (runs every 24 hours)
+    # Expiry jobs: reminder once a day, access removal every hour
     if app.job_queue:
-        app.job_queue.run_repeating(_expiry_job, interval=86400, first=60)
+        app.job_queue.run_repeating(_reminder_job, interval=86400, first=60)
+        app.job_queue.run_repeating(_expiry_job, interval=3600, first=30)
 
     app.run_polling(drop_pending_updates=True)
 
