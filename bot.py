@@ -1,6 +1,8 @@
 import os
 import logging
 
+from telegram.error import Conflict
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -36,6 +38,15 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
 )
+
+
+async def _error_handler(update, context):
+    if isinstance(context.error, Conflict):
+        logging.getLogger(__name__).warning(
+            "Conflict: басқа бот нұсқасы сол токенмен жұмыс істеп тұр (getUpdates)"
+        )
+        return
+    logging.getLogger(__name__).error("Unhandled error", exc_info=context.error)
 
 
 async def _expiry_job(context):
@@ -97,6 +108,8 @@ def main():
     app.add_handler(CommandHandler("users",     users_command))
     app.add_handler(CommandHandler("admin",     admin_command))
     app.add_handler(CommandHandler("broadcast", broadcast_command))
+
+    app.add_error_handler(_error_handler)
 
     # Callbacks & messages
     app.add_handler(CallbackQueryHandler(button_handler))
