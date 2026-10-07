@@ -3,7 +3,7 @@ import os
 from datetime import datetime, date, timedelta
 from contextlib import contextmanager
 
-from config import TARIFFS
+from config import TARIFFS, ADMIN_ID
 
 DB_FILE = os.getenv("DB_FILE") or os.getenv("DB_PATH") or "muzmugalim.db"
 _HISTORY_LIMIT = 10
@@ -113,6 +113,13 @@ def ensure_user(tg_user) -> dict:
                  getattr(tg_user, "last_name", None), now, tg_user.id),
             )
             _reset_if_new_month(conn, tg_user.id)
+        if ADMIN_ID and tg_user.id == ADMIN_ID:
+            # The bot owner always has full access (no expiry, not counted as revenue)
+            conn.execute(
+                "UPDATE users SET plan='premium', expires_at=NULL, activated_at=NULL "
+                "WHERE user_id=? AND plan != 'premium'",
+                (tg_user.id,),
+            )
         return _row(conn.execute("SELECT * FROM users WHERE user_id=?", (tg_user.id,)).fetchone())
 
 

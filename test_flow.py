@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 _tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
 _tmp.close()
 os.environ["DB_FILE"] = _tmp.name
+os.environ["ADMIN_CHAT_ID"] = "999"
 os.environ.setdefault("GEMINI_API_KEY", "test-key")
 
 import handlers  # noqa: E402

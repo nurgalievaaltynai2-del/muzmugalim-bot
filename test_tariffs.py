@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 _tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
 _tmp.close()
 os.environ["DB_FILE"] = _tmp.name
+os.environ["ADMIN_CHAT_ID"] = "999"
 
 import storage  # noqa: E402
 from config import TARIFFS  # noqa: E402
@@ -43,6 +44,19 @@ class TariffTests(unittest.TestCase):
         storage.ensure_user(_TgUser(uid))
         if plan:
             storage.activate_plan(uid, plan)
+
+    def test_admin_gets_full_access_without_tariff(self):
+        storage.ensure_user(_TgUser(999))
+        self.assertEqual(_plan(999), "premium")
+        for mtype in ("text", "poster", "music"):
+            self.assertTrue(storage.check_quota(999, mtype)[0], mtype)
+        # admin access never expires
+        self.assertNotIn(999, storage.downgrade_expired_users())
+        self.assertEqual(_plan(999), "premium")
+
+    def test_non_admin_still_needs_tariff(self):
+        storage.ensure_user(_TgUser(1000))
+        self.assertEqual(_plan(1000), "free")
 
     def test_prices(self):
         self.assertEqual(
