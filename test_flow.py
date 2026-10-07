@@ -59,7 +59,7 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
         icon, name = handlers._plan_label("free")
         self.assertNotIn("Тегін", name)
         self.assertIn("Тариф жоқ", name)
-        self.assertEqual(handlers._plan_label("premium")[1], "Премиум")
+        self.assertEqual(handlers._plan_label("premium")[1], "Премиум (ақылы)")
 
     def test_materials_have_outputs(self):
         self.assertEqual(_output_of("Презентация"), "pptx")

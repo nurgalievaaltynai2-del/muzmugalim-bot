@@ -134,7 +134,7 @@ _NO_PLAN_NAME = "Тариф жоқ / Нет тарифа"
 def _plan_label(plan: str) -> tuple:
     """(icon, name) for a user's plan. All tariffs are paid; 'free' means no active tariff."""
     if plan in TARIFFS:
-        return _PLAN_ICON[plan], TARIFFS[plan]["name"]
+        return _PLAN_ICON[plan], f'{TARIFFS[plan]["name"]} (ақылы)'
     return _PLAN_ICON["free"], _NO_PLAN_NAME
 _TYPE_ICONS = {MType.TEXT: "📝", MType.POSTER: "🖼️", MType.MUSIC: "🎵"}
 _TYPE_PROMPTS = {
