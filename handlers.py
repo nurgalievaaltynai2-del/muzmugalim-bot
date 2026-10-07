@@ -70,6 +70,7 @@ HELP_TEXT = (
 
 TARIF_INTRO = (
     "💎 *Тариф жоспарлары / Тарифные планы*\n"
+    "💳 _Барлық тарифтер ақылы / Все тарифы платные_\n"
     "━━━━━━━━━━━━━━━━━━━━━━\n"
     "_Тариф таңдап, кнопканы басыңыз 👇_\n"
     "_Выберите тариф и нажмите кнопку 👇_"
@@ -81,6 +82,7 @@ TARIF_CARDS = {
         "         *БАЗАЛЫҚ*\n"
         "   ━━━━━━━━━━━━━━━━\n"
         "        *6 990 ₸/ай*\n"
+        "      💳 *АҚЫЛЫ тариф / Платный*\n"
         "🥉 ══════════════════ 🥉\n\n"
         "📝 *Барлық мәтін ШЕКСІЗ:*\n\n"
         "🏫 *Мектеп (21 материал):*\n"
@@ -102,6 +104,7 @@ TARIF_CARDS = {
         "        *СТАНДАРТ*\n"
         "   ━━━━━━━━━━━━━━━━\n"
         "        *8 990 ₸/ай*\n"
+        "      💳 *АҚЫЛЫ тариф / Платный*\n"
         "🥈 ══════════════════ 🥈\n\n"
         "✅ Базалықтың *БАРЛЫҒЫ* +\n\n"
         "🎨 *DALL-E 3 Сурет — 30/ай*\n"
@@ -113,6 +116,7 @@ TARIF_CARDS = {
         "        *ПРЕМИУМ*\n"
         "   ━━━━━━━━━━━━━━━━\n"
         "       *14 990 ₸/ай*\n"
+        "      💳 *АҚЫЛЫ тариф / Платный*\n"
         "🥇 ══════════════════ 🥇\n\n"
         "✅ Стандарттың *БАРЛЫҒЫ* +\n\n"
         "🎵 *Suno AI Музыка — 10/ай*\n"
@@ -123,7 +127,15 @@ TARIF_CARDS = {
     ),
 }
 
-_PLAN_ICON = {"free": "🆓", "basic": "🥉", "standard": "🥈", "premium": "🥇"}
+_PLAN_ICON = {"free": "🔒", "basic": "🥉", "standard": "🥈", "premium": "🥇"}
+_NO_PLAN_NAME = "Тариф жоқ / Нет тарифа"
+
+
+def _plan_label(plan: str) -> tuple:
+    """(icon, name) for a user's plan. All tariffs are paid; 'free' means no active tariff."""
+    if plan in TARIFFS:
+        return _PLAN_ICON[plan], TARIFFS[plan]["name"]
+    return _PLAN_ICON["free"], _NO_PLAN_NAME
 _TYPE_ICONS = {MType.TEXT: "📝", MType.POSTER: "🖼️", MType.MUSIC: "🎵"}
 _TYPE_PROMPTS = {
     MType.TEXT:   "✏️ *Тақырыпты жазыңыз / Введите тему*\n\n_Мысалы: «Домбыра», «Моцарт», «Ән жанрлары»_",
@@ -280,8 +292,7 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def _show_profile(message, tg_user):
     user = ensure_user(tg_user)
     plan = user.get("plan", "free")
-    plan_icon = _PLAN_ICON.get(plan, "🆓")
-    plan_name = TARIFFS.get(plan, {}).get("name", "Тегін")
+    plan_icon, plan_name = _plan_label(plan)
 
     name_parts = [tg_user.first_name or ""]
     if getattr(tg_user, "last_name", None):
@@ -358,7 +369,7 @@ async def _send_users_list(message):
     lines = []
     for u in users:
         name = f"@{u['username']}" if u.get("username") else u.get("first_name", str(u["user_id"]))
-        plan = TARIFFS.get(u.get("plan", "free"), {}).get("name", "?")
+        plan = _plan_label(u.get("plan", "free"))[1]
         lines.append(
             f"{name} | {plan} | "
             f"📝{u.get('text_total', 0)} "
@@ -410,18 +421,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["lang"] = lang
         user = ensure_user(update.effective_user)
         plan = user.get("plan", "free")
-        plan_icon = _PLAN_ICON.get(plan, "💎")
-        plan_name = TARIFFS.get(plan, {}).get("name", "")
+        plan_icon, plan_name = _plan_label(plan)
         if lang == "ru":
-            text = (
-                MAIN_MENU_TEXT_RU
-                + (f"\n\n{plan_icon} Тариф: *{plan_name}*" if plan != "free" else "")
-            )
+            text = MAIN_MENU_TEXT_RU + f"\n\n{plan_icon} Тариф: *{plan_name}*"
         else:
-            text = (
-                MAIN_MENU_TEXT
-                + (f"\n\n{plan_icon} Тарифіңіз: *{plan_name}*" if plan != "free" else "")
-            )
+            text = MAIN_MENU_TEXT + f"\n\n{plan_icon} Тарифіңіз: *{plan_name}*"
         await query.edit_message_text(text, reply_markup=main_menu_kb(), parse_mode="Markdown")
         return
 
@@ -438,8 +442,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "profile":
         user = ensure_user(update.effective_user)
         plan = user.get("plan", "free")
-        plan_icon = _PLAN_ICON.get(plan, "🆓")
-        plan_name = TARIFFS.get(plan, {}).get("name", "Тегін")
+        plan_icon, plan_name = _plan_label(plan)
         poster_used, poster_lim = get_remaining(uid, "poster")
         music_used, music_lim = get_remaining(uid, "music")
         total_gen = (user.get("text_total", 0) + user.get("poster_total", 0)
@@ -779,7 +782,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines = []
         for u in users:
             name = f"@{u['username']}" if u.get("username") else u.get("first_name", str(u["user_id"]))
-            plan = TARIFFS.get(u.get("plan", "free"), {}).get("name", "?")
+            plan = _plan_label(u.get("plan", "free"))[1]
             lines.append(f"{name} | {plan} | 📝{u.get('text_total',0)} 🖼️{u.get('poster_total',0)} 🎵{u.get('music_total',0)}")
         text = f"👥 *Соңғы {len(users)} қолданушы:*\n\n" + "\n".join(lines) if lines else "Жоқ."
         await query.edit_message_text(text, parse_mode="Markdown",
@@ -892,6 +895,7 @@ async def _show_payment(query, update, context, plan: str):
 
     text = (
         f"{plan_icon} *{name} тарифі*\n"
+        f"💳 *Ақылы тариф / Платный тариф*\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"💰 Сома: *{price:,} ₸/ай*\n\n"
         f"✅ Мүмкіндіктер:\n"
@@ -929,8 +933,7 @@ async def _show_list(query, section: str, page: int, user_plan: str):
     materials = SECTIONS[section]["materials"]
     total = len(materials)
     label = SECTIONS[section]["label"]
-    plan_name = TARIFFS.get(user_plan, {}).get("name", "Тегін")
-    plan_icon = _PLAN_ICON.get(user_plan, "🆓")
+    plan_icon, plan_name = _plan_label(user_plan)
     await query.edit_message_text(
         f"{label}\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"

@@ -50,6 +50,17 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
         storage.ensure_user(SimpleNamespace(id=uid, username="u", first_name="T", last_name=None))
         storage.activate_plan(uid, plan)
 
+    def test_every_tariff_card_says_paid(self):
+        for plan in ("basic", "standard", "premium"):
+            self.assertIn("АҚЫЛЫ", handlers.TARIF_CARDS[plan])
+        self.assertIn("ақылы", handlers.TARIF_INTRO)
+
+    def test_no_plan_is_not_labelled_free(self):
+        icon, name = handlers._plan_label("free")
+        self.assertNotIn("Тегін", name)
+        self.assertIn("Тариф жоқ", name)
+        self.assertEqual(handlers._plan_label("premium")[1], "Премиум")
+
     def test_materials_have_outputs(self):
         self.assertEqual(_output_of("Презентация"), "pptx")
         self.assertEqual(_output_of("Көрнекілік"), "visual")
