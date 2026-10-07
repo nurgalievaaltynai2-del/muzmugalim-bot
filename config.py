@@ -20,7 +20,8 @@ class Material:
     mtype: MType
     min_plan: str
     name_ru: str = ""
-    # "text" = plain text, "visual" = text + illustration, "pptx" = PowerPoint file
+    # "text" = plain text, "visual" = text + illustration, "pptx" = PowerPoint file,
+    # "notes" = text + sheet music image
     output: str = "text"
 
 
@@ -35,7 +36,7 @@ MEKTEP_MATERIALS = [
     Material("ҚМЖ/КТЖ",           MType.TEXT,   "basic",    "КТП/КСП"),
     Material("Сабақ жоспары",      MType.TEXT,   "basic",    "План урока"),
     Material("Рубрика",            MType.TEXT,   "basic",    "Рубрика"),
-    Material("Ноталар",            MType.TEXT,   "basic",    "Ноты"),
+    Material("Ноталар",            MType.TEXT,   "basic",    "Ноты", output="notes"),
     Material("Музыкалық диктант",  MType.TEXT,   "basic",    "Музыкальный диктант"),
     Material("Дауыс жаттығулары",  MType.TEXT,   "basic",    "Вокальные упражнения"),
     Material("Сергіту сәті",       MType.TEXT,   "basic",    "Физминутка"),

@@ -65,14 +65,58 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
     def test_materials_have_outputs(self):
         self.assertEqual(_output_of("Презентация"), "pptx")
         self.assertEqual(_output_of("Көрнекілік"), "visual")
+        self.assertEqual(_output_of("Ноталар"), "notes")
 
-    async def test_presentation_sends_pptx_file(self):
+    async def test_presentation_basic_is_text_only_with_upgrade_hint(self):
         self._user(1, "basic")
         upd, ctx = _update(1, "Домбыра"), _ctx("Презентация", "pptx")
-        with patch.object(handlers.generators, "gen_slides", AsyncMock(return_value=SLIDES)):
+        gen_images = AsyncMock(return_value={})
+        with patch.object(handlers.generators, "gen_slides", AsyncMock(return_value=SLIDES)),              patch.object(handlers.generators, "gen_slide_images", gen_images):
             await handlers.text_message_handler(upd, ctx)
         upd.message.reply_document.assert_awaited_once()
         self.assertTrue(upd.message.reply_document.await_args.kwargs["filename"].endswith(".pptx"))
+        gen_images.assert_not_awaited()
+        sent = " ".join(str(c.args[0]) for c in upd.message.reply_text.await_args_list if c.args)
+        self.assertIn("Стандарт", sent)
+
+    async def test_presentation_standard_gets_pictures_and_uses_one_poster_unit(self):
+        import io as _io
+        from PIL import Image
+        from pptx import Presentation
+        png = _io.BytesIO()
+        Image.new("RGB", (32, 32), (10, 120, 200)).save(png, "PNG")
+        self._user(5, "standard")
+        upd, ctx = _update(5, "Домбыра"), _ctx("Презентация", "pptx")
+        with patch.object(handlers.generators, "gen_slides", AsyncMock(return_value=SLIDES)),              patch.object(handlers.generators, "gen_slide_images",
+                          AsyncMock(return_value={-1: png.getvalue(), 0: png.getvalue()})):
+            await handlers.text_message_handler(upd, ctx)
+        doc = upd.message.reply_document.await_args.kwargs["document"]
+        prs = Presentation(_io.BytesIO(doc.getvalue()))
+        pics = [sh for s in prs.slides for sh in s.shapes if sh.shape_type == 13]
+        self.assertEqual(len(pics), 2)
+        self.assertEqual(storage.get_remaining(5, "poster")[0], 1)
+
+    async def test_notes_send_sheet_music_photo_and_text(self):
+        import generators as g
+        self._user(6, "basic")
+        melody = g.parse_melody(
+            '{"title":"Тест","time":"4/4","measures":[[{"p":"C4","d":1,"l":"а"},'
+            '{"p":"D4","d":1,"l":"б"},{"p":"E4","d":2,"l":"в"}]]}'
+        )
+        upd, ctx = _update(6, "Көктем"), _ctx("Ноталар", "notes")
+        with patch.object(handlers.generators, "gen_text", AsyncMock(return_value="сипаттама")),              patch.object(handlers.generators, "gen_melody", AsyncMock(return_value=melody)):
+            await handlers.text_message_handler(upd, ctx)
+        upd.message.reply_photo.assert_awaited_once()
+        self.assertEqual(storage.get_remaining(6, "poster")[0], 0)  # notation costs no picture quota
+
+    async def test_notes_text_still_sent_when_melody_fails(self):
+        self._user(7, "basic")
+        upd, ctx = _update(7, "Көктем"), _ctx("Ноталар", "notes")
+        with patch.object(handlers.generators, "gen_text", AsyncMock(return_value="сипаттама")),              patch.object(handlers.generators, "gen_melody", AsyncMock(side_effect=ValueError("bad"))):
+            await handlers.text_message_handler(upd, ctx)
+        upd.message.reply_photo.assert_not_awaited()
+        sent = " ".join(str(c.args[0]) for c in upd.message.reply_text.await_args_list if c.args)
+        self.assertIn("сипаттама", sent)
 
     async def test_visual_standard_gets_text_and_image_and_uses_poster_quota(self):
         self._user(2, "standard")

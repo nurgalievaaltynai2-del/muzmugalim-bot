@@ -1,11 +1,14 @@
 import asyncio
 import json
+import logging
 import os
 import re
 import httpx
 
+import notation
 from google import genai
 
+logger = logging.getLogger(__name__)
 _gemini = genai.Client(api_key=os.getenv("GEMINI_API_KEY", "").strip())
 _OPENAI_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 _SUNO_BASE = os.getenv("SUNO_BASE_URL", "").rstrip("/")
@@ -94,6 +97,94 @@ async def gen_slides(section: str, topic: str, lang: str = "kz") -> list:
     return parse_slides(response.text)
 
 
+# ─── Notation (Gemini → melody → sheet music) ─────────────────────────────────
+
+def parse_melody(raw: str) -> dict:
+    """Parse Gemini JSON into a melody whose every measure fits the time signature."""
+    text = re.sub(r"^```(?:json)?\s*|\s*```$", "", (raw or "").strip())
+    try:
+        data = json.loads(text)
+    except (json.JSONDecodeError, TypeError) as e:
+        raise ValueError("Ноталар форматы дұрыс емес") from e
+    if not isinstance(data, dict):
+        raise ValueError("Ноталар форматы дұрыс емес")
+
+    m = re.fullmatch(r"\s*(\d{1,2})\s*/\s*(2|4|8)\s*", str(data.get("time", "4/4")))
+    num, den = (int(m.group(1)), int(m.group(2))) if m else (4, 4)
+    beats = num * 4 / den
+
+    measures = []
+    for bar in data.get("measures") or []:
+        notes, total = [], 0.0
+        for n in bar if isinstance(bar, list) else []:
+            if not isinstance(n, dict):
+                continue
+            dur = notation.snap_duration(n.get("d"))
+            if total + dur > beats + 1e-6:
+                break
+            pitch = str(n.get("p", "")).strip()
+            if pitch.upper() not in ("R", "REST"):
+                try:
+                    notation.pitch_to_step(pitch)
+                except ValueError:
+                    continue
+            notes.append({"p": pitch, "d": dur, "l": str(n.get("l") or "").strip()})
+            total += dur
+        if not notes:
+            continue
+        notes.extend(notation.rest_fill(beats - total))
+        measures.append(notes)
+    if not measures:
+        raise ValueError("Әуенде нота жоқ")
+
+    try:
+        tempo = int(data.get("tempo", 90))
+    except (TypeError, ValueError):
+        tempo = 90
+    return {
+        "title": str(data.get("title") or "Ноталар").strip(),
+        "time": (num, den),
+        "beats": beats,
+        "tempo": tempo,
+        "measures": measures,
+    }
+
+
+async def gen_melody(section: str, topic: str, lang: str = "kz") -> dict:
+    audience = "школьников" if section == "mektep" else "детского сада"
+    audience_kz = "оқушыларға" if section == "mektep" else "балабақша балаларына"
+    if lang == "ru":
+        intro = (
+            f"Ты — учитель музыки. Сочини короткую простую мелодию для {audience} по теме «{topic}». "
+            f"Слова (слоги под нотами) — на русском."
+        )
+    else:
+        intro = (
+            f"Сен — музыка мұғалімісің. «{topic}» тақырыбына {audience_kz} арналған қысқа, қарапайым ән әуенін шығар. "
+            f"Сөздері (ноталардың астындағы буындар) қазақ тілінде болсын."
+        )
+    instruction = intro + (
+        "\n\nТек JSON қайтар / Return ONLY JSON:\n"
+        '{"title": "...", "time": "4/4", "tempo": 96, "measures": ['
+        '[{"p": "C4", "d": 1, "l": "сөз"}, {"p": "R", "d": 1}, ...], ...]}\n'
+        "Ережелер: ключ — скрипка, тональдық — до мажор (диез/бемольсіз, қажет болса C#4/Bb4 түрінде жаз). "
+        "Дыбыс аралығы C4–A5. p — нота (C4, D4, E4, F4, G4, A4, B4, C5 ...) немесе R (үзіліс). "
+        "d — ұзақтығы ширек нотамен: 4, 3, 2, 1.5, 1, 0.5. "
+        "Әр такт ұзақтығының қосындысы өлшемге тең болсын (4/4 → 4, 3/4 → 3, 2/4 → 2). "
+        "8 такт, соңы тұрақты дыбыспен (C4 немесе E4/G4) аяқталсын. "
+        "l — сол нотаға сәйкес сөз буыны (бір нота — бір буын), қажет емес жерде бос қалдыр."
+    )
+    from google.genai import types
+
+    response = await asyncio.to_thread(
+        _gemini.models.generate_content,
+        model="gemini-2.5-flash",
+        contents=instruction,
+        config=types.GenerateContentConfig(response_mime_type="application/json"),
+    )
+    return parse_melody(response.text)
+
+
 # ─── Image (DALL-E 3) ─────────────────────────────────────────────────────────
 
 async def _gen_image_gemini(prompt: str) -> bytes:
@@ -125,7 +216,8 @@ async def gen_poster(section: str, material_name: str, topic: str, kind: str = "
             f"Educational cartoon-style poster for a {section_label} in Kazakhstan. "
             f"Topic: {topic}. Bright, child-friendly, colorful illustration. "
             f"Include musical notes, instruments, and Kazakh cultural elements. "
-            f"High quality, clean design suitable for classroom display."
+            f"High quality, clean design suitable for classroom display. "
+            f"Do not put any text, letters or words in the image."
         )
 
     if not _OPENAI_KEY:
@@ -154,6 +246,30 @@ async def gen_poster(section: str, material_name: str, topic: str, kind: str = "
         img_resp = await client.get(image_url)
         img_resp.raise_for_status()
         return img_resp.content
+
+
+async def gen_slide_images(section: str, topic: str, slides: list, max_content: int = 4) -> dict:
+    """Pictures for a presentation: cover (-1) plus the first `max_content` slides.
+
+    Returns {index: png_bytes} for the ones that succeeded; failures are skipped.
+    """
+    targets = [(-1, topic)] + [
+        (i, f"{topic}: {slides[i]['title']}") for i in range(min(max_content, len(slides)))
+    ]
+    sem = asyncio.Semaphore(3)
+
+    async def one(idx, subject):
+        async with sem:
+            return idx, await gen_poster(section, "", subject, kind="visual")
+
+    results = await asyncio.gather(*(one(i, t) for i, t in targets), return_exceptions=True)
+    images = {}
+    for r in results:
+        if isinstance(r, Exception):
+            logger.error("slide image error: %s", r)
+        else:
+            images[r[0]] = r[1]
+    return images
 
 
 # ─── Music (Suno AI) ──────────────────────────────────────────────────────────

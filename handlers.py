@@ -1,3 +1,4 @@
+import asyncio
 import io
 import logging
 from datetime import datetime
@@ -6,6 +7,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 import generators
+import notation
 import pdf_gen
 import pptx_gen
 from config import SECTIONS, TARIFFS, PLAN_RANK, ADMIN_ID, MType
@@ -107,7 +109,8 @@ TARIF_CARDS = {
         "      💳 *АҚЫЛЫ тариф / Платный*\n"
         "🥈 ══════════════════ 🥈\n\n"
         "✅ Базалықтың *БАРЛЫҒЫ* +\n\n"
-        "🎨 *DALL-E 3 Сурет — 30/ай*\n"
+        "🎨 *Сурет — 30/ай*\n"
+        "▸ Презентация · Көрнекілік — *суреттермен*\n"
         "📁 *Портфолио*\n"
         "▸ Мектеп + Балабақша бөлімдері"
     ),
@@ -855,18 +858,23 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
+def _poster_access_note(what: str, allowed: bool, reason: str) -> str:
+    """Message for a picture-enabled material when the user cannot get pictures."""
+    if reason == "no_poster_access":
+        return (
+            f"🖼️ {what} *{TARIFFS['standard']['name']}* тарифінен.\n"
+            "_Картинки — с тарифа Стандарт._"
+        )
+    return reason or f"🖼️ {what}: сурет лимиті аяқталды."
+
+
 async def _send_visual_aid(update, uid: int, section: str, material_name: str, topic: str):
     """Illustration for "Көрнекілік": needs poster quota (Стандарт/Премиум)."""
     allowed, reason = check_quota(uid, "poster")
     if not allowed:
-        if reason == "no_poster_access":
-            note = (
-                f"🖼️ Көрнекілікке сурет қосу *{TARIFFS['standard']['name']}* тарифінен.\n"
-                "_Картинка к наглядному пособию — с тарифа Стандарт._"
-            )
-        else:
-            note = reason
-        await update.message.reply_text(note, parse_mode="Markdown")
+        await update.message.reply_text(
+            _poster_access_note("Көрнекілікке сурет қосу", allowed, reason), parse_mode="Markdown"
+        )
         return
     try:
         img_bytes = await generators.gen_poster(section, material_name, topic, kind="visual")
@@ -889,8 +897,8 @@ async def _show_payment(query, update, context, plan: str):
 
     features = {
         "basic":    "📝 Мәтін — шексіз\n   └ Мектеп: 21 + Балабақша: 27 материал",
-        "standard": "📝 Мәтін — шексіз\n   └ 🖼️ Постер — 30/ай\n   └ 📁 Портфолио",
-        "premium":  "📝 Мәтін — шексіз\n   └ 🖼️ Постер — 50/ай\n   └ 🎵 Музыка MP3 — 10/ай",
+        "standard": "📝 Мәтін — шексіз\n   └ 🖼️ Постер, Көрнекілік, Презентация суреттермен — 30/ай\n   └ 📁 Портфолио",
+        "premium":  "📝 Мәтін — шексіз\n   └ 🖼️ Постер, Көрнекілік, Презентация суреттермен — 50/ай\n   └ 🎵 Музыка MP3 — 10/ай",
     }
 
     text = (
@@ -1004,15 +1012,36 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         try:
             lang = context.user_data.get("lang", "kz")
             output = context.user_data.get("material_output", "text")
+            poster_ok, poster_reason = True, ""
+            notes_png = None
             if output == "pptx":
                 slides = await generators.gen_slides(section, topic, lang)
+                # Pictures need poster quota (Стандарт/Премиум); one presentation costs one unit
+                images = {}
+                poster_ok, poster_reason = check_quota(uid, "poster")
+                if poster_ok:
+                    images = await generators.gen_slide_images(section, topic, slides)
+                    if images:
+                        record_usage(uid, "poster")
                 pptx_buf, pptx_name = pptx_gen.build_pptx(
-                    topic, SECTIONS[section]["label"], slides
+                    topic, SECTIONS[section]["label"], slides, images=images
                 )
                 result = "\n\n".join(
                     f"{i}. {sl['title']}\n" + "\n".join(f"• {b}" for b in sl["bullets"])
                     for i, sl in enumerate(slides, 1)
                 )
+            elif output == "notes":
+                result, melody = await asyncio.gather(
+                    generators.gen_text(section, material_name, topic, lang, name_ru=material_name_ru),
+                    generators.gen_melody(section, topic, lang),
+                    return_exceptions=True,
+                )
+                if isinstance(result, Exception):
+                    raise result
+                if isinstance(melody, Exception):
+                    logger.error("gen_melody error: %s", melody, exc_info=melody)
+                else:
+                    notes_png = await asyncio.to_thread(notation.render_notation, melody)
             else:
                 result = await generators.gen_text(section, material_name, topic, lang, name_ru=material_name_ru)
             record_usage(uid, "text")
@@ -1022,8 +1051,22 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                 await update.message.reply_document(
                     document=pptx_buf,
                     filename=pptx_name,
-                    caption=f"📊 {topic} — {len(slides)} слайд",
+                    caption=f"📊 {topic} — {len(slides)} слайд" + (" • 🖼️ суреттермен" if images else ""),
                 )
+                if not images:
+                    await update.message.reply_text(
+                        _poster_access_note("Презентацияға сурет қосу", poster_ok, poster_reason),
+                        parse_mode="Markdown",
+                    )
+            elif output == "notes":
+                if notes_png:
+                    await update.message.reply_photo(
+                        photo=io.BytesIO(notes_png), caption=f"🎼 {topic} — нота дәптері"
+                    )
+                else:
+                    await update.message.reply_text("⚠️ Нота суреті жасалмады, мәтін төменде.")
+                for part in generators.split_long_message(result):
+                    await update.message.reply_text(part)
             else:
                 for part in generators.split_long_message(result):
                     await update.message.reply_text(part)
