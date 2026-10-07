@@ -4,3 +4,4 @@ openai
 python-dotenv
 httpx
 fpdf2
+python-pptx

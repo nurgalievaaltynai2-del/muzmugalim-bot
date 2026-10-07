@@ -20,6 +20,8 @@ class Material:
     mtype: MType
     min_plan: str
     name_ru: str = ""
+    # "text" = plain text, "visual" = text + illustration, "pptx" = PowerPoint file
+    output: str = "text"
 
 
 # ─── Мектеп: 29 materials (31 features) ─────────────────────────────────────
@@ -27,8 +29,8 @@ class Material:
 
 MEKTEP_MATERIALS = [
     # ── Basic (21 text) ──
-    Material("Көрнекілік",         MType.TEXT,   "basic",    "Наглядное пособие"),
-    Material("Презентация",        MType.TEXT,   "basic",    "Презентация"),
+    Material("Көрнекілік",         MType.TEXT,   "basic",    "Наглядное пособие", output="visual"),
+    Material("Презентация",        MType.TEXT,   "basic",    "Презентация", output="pptx"),
     Material("Тест сұрақтары",     MType.TEXT,   "basic",    "Тест"),
     Material("ҚМЖ/КТЖ",           MType.TEXT,   "basic",    "КТП/КСП"),
     Material("Сабақ жоспары",      MType.TEXT,   "basic",    "План урока"),
@@ -69,7 +71,7 @@ BALABAQSHA_MATERIALS = [
     Material("Айлық жоспар",      MType.TEXT,   "basic",    "Месячный план"),
     Material("Аптасабақ",         MType.TEXT,   "basic",    "Недельный план"),
     Material("Циклограмма",       MType.TEXT,   "basic",    "Циклограмма"),
-    Material("Көрнекілік",        MType.TEXT,   "basic",    "Наглядное пособие"),
+    Material("Көрнекілік",        MType.TEXT,   "basic",    "Наглядное пособие", output="visual"),
     Material("Ән сөздері",        MType.TEXT,   "basic",    "Текст песни"),
     Material("Би жоспары",        MType.TEXT,   "basic",    "План танца"),
     Material("Таңғы гимнастика",  MType.TEXT,   "basic",    "Утренняя гимнастика"),

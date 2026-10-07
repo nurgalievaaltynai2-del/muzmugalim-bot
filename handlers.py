@@ -7,6 +7,7 @@ from telegram.ext import ContextTypes
 
 import generators
 import pdf_gen
+import pptx_gen
 from config import SECTIONS, TARIFFS, PLAN_RANK, ADMIN_ID, MType
 from keyboards import (
     main_menu_kb, material_list_kb, back_to_list_kb,
@@ -539,6 +540,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "material_name": mat.name,
             "material_name_ru": mat.name_ru,
             "material_type": mat.mtype,
+            "material_output": mat.output,
             "page": page,
             "waiting_topic": True,
         })
@@ -850,6 +852,30 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
+async def _send_visual_aid(update, uid: int, section: str, material_name: str, topic: str):
+    """Illustration for "Көрнекілік": needs poster quota (Стандарт/Премиум)."""
+    allowed, reason = check_quota(uid, "poster")
+    if not allowed:
+        if reason == "no_poster_access":
+            note = (
+                f"🖼️ Көрнекілікке сурет қосу *{TARIFFS['standard']['name']}* тарифінен.\n"
+                "_Картинка к наглядному пособию — с тарифа Стандарт._"
+            )
+        else:
+            note = reason
+        await update.message.reply_text(note, parse_mode="Markdown")
+        return
+    try:
+        img_bytes = await generators.gen_poster(section, material_name, topic, kind="visual")
+        record_usage(uid, "poster")
+        await update.message.reply_photo(
+            photo=io.BytesIO(img_bytes), caption=f"🖼️ {material_name} — {topic}"
+        )
+    except Exception as e:
+        logger.error("visual aid image error: %s", e, exc_info=True)
+        await update.message.reply_text("⚠️ Сурет жасалмады, мәтін жоғарыда. Кейінірек қайталаңыз.")
+
+
 # ─── Payment helper ───────────────────────────────────────────────────────────
 
 async def _show_payment(query, update, context, plan: str):
@@ -974,12 +1000,32 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         try:
             lang = context.user_data.get("lang", "kz")
-            result = await generators.gen_text(section, material_name, topic, lang, name_ru=material_name_ru)
+            output = context.user_data.get("material_output", "text")
+            if output == "pptx":
+                slides = await generators.gen_slides(section, topic, lang)
+                pptx_buf, pptx_name = pptx_gen.build_pptx(
+                    topic, SECTIONS[section]["label"], slides
+                )
+                result = "\n\n".join(
+                    f"{i}. {sl['title']}\n" + "\n".join(f"• {b}" for b in sl["bullets"])
+                    for i, sl in enumerate(slides, 1)
+                )
+            else:
+                result = await generators.gen_text(section, material_name, topic, lang, name_ru=material_name_ru)
             record_usage(uid, "text")
             hist_id = save_history(uid, section, material_name, "text", topic, result)
             await msg.delete()
-            for part in generators.split_long_message(result):
-                await update.message.reply_text(part)
+            if output == "pptx":
+                await update.message.reply_document(
+                    document=pptx_buf,
+                    filename=pptx_name,
+                    caption=f"📊 {topic} — {len(slides)} слайд",
+                )
+            else:
+                for part in generators.split_long_message(result):
+                    await update.message.reply_text(part)
+            if output == "visual":
+                await _send_visual_aid(update, uid, section, material_name, topic)
             usage_line = _usage_line(uid, "text")
             done_text = (
                 f"✅ *{material_name}* дайын!\n"

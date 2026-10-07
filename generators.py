@@ -1,5 +1,7 @@
 import asyncio
+import json
 import os
+import re
 import httpx
 
 from google import genai
@@ -42,19 +44,77 @@ async def gen_text(section: str, material_name: str, topic: str, lang: str = "kz
     return response.text
 
 
+# ─── Presentation (Gemini → slides) ───────────────────────────────────────────
+
+def parse_slides(raw: str) -> list:
+    """Parse Gemini JSON output into [{"title": str, "bullets": [str]}]."""
+    text = re.sub(r"^```(?:json)?\s*|\s*```$", "", (raw or "").strip())
+    try:
+        data = json.loads(text)
+    except (json.JSONDecodeError, TypeError) as e:
+        raise ValueError("Презентация форматы дұрыс емес") from e
+    items = data.get("slides") if isinstance(data, dict) else data
+    slides = []
+    for it in items or []:
+        if not isinstance(it, dict) or not it.get("title"):
+            continue
+        bullets = [str(b).strip() for b in it.get("bullets", []) if str(b).strip()]
+        slides.append({"title": str(it["title"]).strip(), "bullets": bullets})
+    if not slides:
+        raise ValueError("Презентацияда слайд жоқ")
+    return slides
+
+
+async def gen_slides(section: str, topic: str, lang: str = "kz") -> list:
+    audience = "школы" if section == "mektep" else "детского сада"
+    audience_kz = "мектепке" if section == "mektep" else "балабақшаға"
+    if lang == "ru":
+        instruction = (
+            f"Ты — AI-помощник учителя музыки в Казахстане. Отвечай ТОЛЬКО на русском. "
+            f"Подготовь презентацию для {audience} по теме «{topic}»."
+        )
+    else:
+        instruction = (
+            f"Сен — Қазақстандағы музыка мұғаліміне арналған AI көмекші. Тек қазақ тілінде жауап бер. "
+            f"«{topic}» тақырыбына {audience_kz} арналған презентация дайында."
+        )
+    instruction += (
+        '\n\nТек JSON қайтар / Return ONLY JSON: {"slides": [{"title": "...", "bullets": ["...", "..."]}]}. '
+        "8–10 слайд, әр слайдта 3–5 қысқа пункт (әрқайсысы 12 сөзден аспасын). "
+        "Бірінші слайд — мақсаты, соңғы слайд — қорытынды/сұрақтар."
+    )
+    from google.genai import types
+
+    response = await asyncio.to_thread(
+        _gemini.models.generate_content,
+        model="gemini-2.5-flash",
+        contents=instruction,
+        config=types.GenerateContentConfig(response_mime_type="application/json"),
+    )
+    return parse_slides(response.text)
+
+
 # ─── Image (DALL-E 3) ─────────────────────────────────────────────────────────
 
-async def gen_poster(section: str, material_name: str, topic: str) -> bytes:
+async def gen_poster(section: str, material_name: str, topic: str, kind: str = "poster") -> bytes:
     if not _OPENAI_KEY:
         raise RuntimeError("OPENAI_API_KEY орнатылмаған")
 
     section_label = "school music class" if section == "mektep" else "kindergarten music class"
-    prompt = (
-        f"Educational cartoon-style poster for a {section_label} in Kazakhstan. "
-        f"Topic: {topic}. Bright, child-friendly, colorful illustration. "
-        f"Include musical notes, instruments, and Kazakh cultural elements. "
-        f"High quality, clean design suitable for classroom display."
-    )
+    if kind == "visual":
+        prompt = (
+            f"Educational visual aid illustration for a {section_label} in Kazakhstan. "
+            f"Topic: {topic}. Clear, simple, large central subject on a clean light background, "
+            f"child-friendly colorful cartoon style, suitable to show on a classroom screen. "
+            f"No text or letters in the image."
+        )
+    else:
+        prompt = (
+            f"Educational cartoon-style poster for a {section_label} in Kazakhstan. "
+            f"Topic: {topic}. Bright, child-friendly, colorful illustration. "
+            f"Include musical notes, instruments, and Kazakh cultural elements. "
+            f"High quality, clean design suitable for classroom display."
+        )
 
     async with httpx.AsyncClient(timeout=60) as client:
         resp = await client.post(
