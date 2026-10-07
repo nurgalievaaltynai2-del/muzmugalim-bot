@@ -96,10 +96,22 @@ async def gen_slides(section: str, topic: str, lang: str = "kz") -> list:
 
 # ─── Image (DALL-E 3) ─────────────────────────────────────────────────────────
 
-async def gen_poster(section: str, material_name: str, topic: str, kind: str = "poster") -> bytes:
-    if not _OPENAI_KEY:
-        raise RuntimeError("OPENAI_API_KEY орнатылмаған")
+async def _gen_image_gemini(prompt: str) -> bytes:
+    from google.genai import types
 
+    response = await asyncio.to_thread(
+        _gemini.models.generate_content,
+        model="gemini-2.5-flash-image",
+        contents=prompt,
+        config=types.GenerateContentConfig(response_modalities=["IMAGE"]),
+    )
+    for part in response.candidates[0].content.parts:
+        if part.inline_data and part.inline_data.data:
+            return part.inline_data.data
+    raise ValueError("Gemini сурет қайтармады")
+
+
+async def gen_poster(section: str, material_name: str, topic: str, kind: str = "poster") -> bytes:
     section_label = "school music class" if section == "mektep" else "kindergarten music class"
     if kind == "visual":
         prompt = (
@@ -115,6 +127,10 @@ async def gen_poster(section: str, material_name: str, topic: str, kind: str = "
             f"Include musical notes, instruments, and Kazakh cultural elements. "
             f"High quality, clean design suitable for classroom display."
         )
+
+    if not _OPENAI_KEY:
+        # No OpenAI key configured: use Gemini image generation instead
+        return await _gen_image_gemini(prompt)
 
     async with httpx.AsyncClient(timeout=60) as client:
         resp = await client.post(
