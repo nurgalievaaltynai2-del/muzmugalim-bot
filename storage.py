@@ -3,7 +3,7 @@ import os
 from datetime import datetime, date, timedelta
 from contextlib import contextmanager
 
-from config import TARIFFS, ADMIN_ID
+from config import TARIFFS, ADMIN_ID, ASK_DAILY_LIMIT
 
 DB_FILE = os.getenv("DB_FILE") or os.getenv("DB_PATH") or "muzmugalim.db"
 _HISTORY_LIMIT = 10
@@ -66,6 +66,13 @@ def init_db():
                 result        TEXT,
                 created_at    TEXT NOT NULL,
                 FOREIGN KEY (user_id) REFERENCES users(user_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS ask_usage (
+                user_id INTEGER NOT NULL,
+                day     TEXT NOT NULL,
+                count   INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (user_id, day)
             );
         """)
 
@@ -174,6 +181,48 @@ def record_usage(user_id: int, mtype: str):
             f"UPDATE users SET {mtype}_used={mtype}_used+1, {mtype}_total={mtype}_total+1 "
             "WHERE user_id=?",
             (user_id,),
+        )
+
+
+def can_ask(user_id: int) -> tuple:
+    """AI assistant access: any active paid tariff, ASK_DAILY_LIMIT questions per day.
+
+    Returns (allowed, reason) where reason is "no_plan", "limit" or "".
+    """
+    with _conn() as conn:
+        row = conn.execute("SELECT plan FROM users WHERE user_id=?", (user_id,)).fetchone()
+        if not row or row["plan"] not in TARIFFS:
+            return False, "no_plan"
+        used = conn.execute(
+            "SELECT count FROM ask_usage WHERE user_id=? AND day=?",
+            (user_id, date.today().isoformat()),
+        ).fetchone()
+        if used and used["count"] >= ASK_DAILY_LIMIT:
+            return False, "limit"
+    return True, ""
+
+
+def get_ask_used(user_id: int) -> int:
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT count FROM ask_usage WHERE user_id=? AND day=?",
+            (user_id, date.today().isoformat()),
+        ).fetchone()
+        return row["count"] if row else 0
+
+
+def record_ask(user_id: int):
+    day = date.today().isoformat()
+    with _conn() as conn:
+        conn.execute(
+            "INSERT INTO ask_usage (user_id, day, count) VALUES (?, ?, 1) "
+            "ON CONFLICT(user_id, day) DO UPDATE SET count = count + 1",
+            (user_id, day),
+        )
+        # keep the table small: only the last week is ever needed
+        conn.execute(
+            "DELETE FROM ask_usage WHERE day < ?",
+            ((date.today() - timedelta(days=7)).isoformat(),),
         )
 
 

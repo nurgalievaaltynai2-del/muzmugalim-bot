@@ -29,9 +29,16 @@ def main_menu_kb() -> InlineKeyboardMarkup:
             InlineKeyboardButton("🏫 Мектеп",    callback_data="section:mektep"),
             InlineKeyboardButton("🎪 Балабақша", callback_data="section:balabaqsha"),
         ],
+        [InlineKeyboardButton("💬 Сұрақ қою / Задать вопрос", callback_data="ask")],
         [InlineKeyboardButton("✨ Мүмкіндіктер мен тарифтер", callback_data="tarif")],
         [InlineKeyboardButton("👤 Профиль / Профиль",         callback_data="profile")],
         [InlineKeyboardButton("📞 Жазылу → @muzmugalim", url="https://t.me/muzmugalim")],
+    ])
+
+
+def ask_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🏠 Басты мәзір", callback_data="main_menu")],
     ])
 
 

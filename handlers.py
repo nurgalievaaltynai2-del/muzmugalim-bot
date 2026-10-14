@@ -10,9 +10,9 @@ import generators
 import notation
 import pdf_gen
 import pptx_gen
-from config import SECTIONS, TARIFFS, PLAN_RANK, ADMIN_ID, MType
+from config import SECTIONS, TARIFFS, PLAN_RANK, ADMIN_ID, ASK_DAILY_LIMIT, MType
 from keyboards import (
-    main_menu_kb, material_list_kb, back_to_list_kb,
+    main_menu_kb, ask_kb, material_list_kb, back_to_list_kb,
     tarif_card_kb, upgrade_kb, payment_kb, result_kb,
     profile_kb, history_kb, hist_item_kb,
     favorites_kb, fav_item_kb,
@@ -21,6 +21,7 @@ from keyboards import (
 from storage import (
     init_db,
     ensure_user, check_quota, record_usage, get_remaining,
+    can_ask, get_ask_used, record_ask,
     save_history, get_history, get_history_item,
     add_favorite, remove_favorite, get_favorites, get_favorite_item,
     activate_plan, get_stats, get_all_users, get_users_for_broadcast,
@@ -60,8 +61,9 @@ HELP_TEXT = (
     "1️⃣ Бөлім таңдаңыз: Мектеп немесе Балабақша\n"
     "2️⃣ Материал түрін таңдаңыз\n"
     "3️⃣ Тақырып жазыңыз — AI дайындайды!\n\n"
-    "🏫 *Мектеп* — 31 мүмкіндік (29 материал)\n"
-    "🎪 *Балабақша* — 47 мүмкіндік (46 материал)\n\n"
+    f"🏫 *Мектеп* — {len(SECTIONS['mektep']['materials'])} мүмкіндік\n"
+    f"🎪 *Балабақша* — {len(SECTIONS['balabaqsha']['materials'])} мүмкіндік\n"
+    f"💬 *Сұрақ қою* — AI көмекші ({ASK_DAILY_LIMIT} сұрақ/күн)\n\n"
     "🤖 *AI қозғалтқыштары:*\n"
     "  📝 Gemini 2.5 Flash — мәтін\n"
     "  🎨 DALL-E 3 — сурет\n"
@@ -78,6 +80,13 @@ TARIF_INTRO = (
     "_Выберите тариф и нажмите кнопку 👇_"
 )
 
+def _basic_count(section: str) -> int:
+    return sum(1 for m in SECTIONS[section]["materials"] if m.min_plan == "basic")
+
+
+_MEKTEP_BASIC = _basic_count("mektep")
+_BALA_BASIC = _basic_count("balabaqsha")
+
 TARIF_CARDS = {
     "basic": (
         "🥉 ══════════════════ 🥉\n"
@@ -86,8 +95,9 @@ TARIF_CARDS = {
         "        *6 990 ₸/ай*\n"
         "      💳 *АҚЫЛЫ тариф / Платный*\n"
         "🥉 ══════════════════ 🥉\n\n"
-        "📝 *Барлық мәтін ШЕКСІЗ:*\n\n"
-        "🏫 *Мектеп (21 материал):*\n"
+        "📝 *Барлық мәтін ШЕКСІЗ:*\n"
+        f"💬 *Сұрақ қою* — AI көмекші ({ASK_DAILY_LIMIT}/күн)\n\n"
+        f"🏫 *Мектеп ({_MEKTEP_BASIC} материал):*\n"
         "▸ Көрнекілік · Презентация · Тест\n"
         "▸ ҚМЖ/КТЖ · Сабақ жоспары · Рубрика\n"
         "▸ Ноталар · Музыкалық диктант\n"
@@ -95,11 +105,15 @@ TARIF_CARDS = {
         "▸ Ән сөздері · Балалар әндері\n"
         "▸ Репертуар тізімі · Хор жоспары\n"
         "▸ Ата-анаға хат · Викторина · Кросворд\n"
-        "▸ Музыкалық ойын · Саусақ ойыны\n\n"
-        "🎪 *Балабақша (27 материал):*\n"
+        "▸ Музыкалық ойын · Саусақ ойыны\n"
+        "▸ Ашық сабақ жоспары · Өзін-өзі талдау\n"
+        "▸ Үйірме жоспары · Сыныптан тыс іс-шара\n"
+        "▸ Терминдер сөздігі · Жұмбақтар\n\n"
+        f"🎪 *Балабақша ({_BALA_BASIC} материал):*\n"
         "▸ Жылдық жоспар · Айлық жоспар\n"
         "▸ Аптасабақ · Логоритмика · Би жоспары\n"
-        "▸ Таңғы гимнастика · Сергіту · + тағы басқа"
+        "▸ Таңғы гимнастика · Сергіту · Шу оркестрі\n"
+        "▸ + тағы басқа"
     ),
     "standard": (
         "🥈 ══════════════════ 🥈\n"
@@ -125,8 +139,12 @@ TARIF_CARDS = {
         "🎵 *Suno AI Музыка — 10/ай*\n"
         "🎨 *Сурет — 50/ай*\n"
         "▸ Рефлексия · Дифф. тапсырма\n"
+        "▸ Мектеп: Конкурс жоспары · Флешмоб\n"
         "▸ Балабақша: Музыка терапия\n"
-        "▸ Бейімдеу · Даму картасы"
+        "▸ Бейімдеу · Даму картасы\n"
+        "▸ Сценарийлер: Наурыз · Жаңа жыл · Туған күн\n"
+        "▸ Бітіру кеші · Утренник · Ашық есік күні\n"
+        "▸ Ата-ана жиналысы"
     ),
 }
 
@@ -145,6 +163,39 @@ _TYPE_PROMPTS = {
     MType.POSTER: "🖼️ *Постер тақырыбы / Тема постера*\n\n_Мысалы: «Наурыз мерекесі», «Домбыра»_",
     MType.MUSIC:  "🎵 *Музыка тақырыбы / Тема музыки*\n\n_Мысалы: «Көктем», «Балалар биі»_",
 }
+
+
+# Topic examples shown for the newer materials: name -> (kazakh, russian)
+_TOPIC_EXAMPLES = {
+    "Ашық сабақ жоспары":         ("«Домбыра — ұлттық аспап, 5-сынып»", "«Домбра — национальный инструмент, 5 класс»"),
+    "Сабақты өзін-өзі талдау":    ("«Абай әндері, 6-сынып»", "«Песни Абая, 6 класс»"),
+    "Үйірме жоспары":             ("«Домбыра үйірмесі, 3–4 сынып»", "«Кружок домбры, 3–4 класс»"),
+    "Сыныптан тыс іс-шара":       ("«Музыка әлемі, 5-сынып»", "«Мир музыки, 5 класс»"),
+    "Музыкалық терминдер сөздігі": ("«Темп және динамика»", "«Темп и динамика»"),
+    "Жұмбақтар":                  ("«Музыка аспаптары»", "«Музыкальные инструменты»"),
+    "Конкурс жоспары":            ("«Қазақ әні байқауы»", "«Конкурс казахской песни»"),
+    "Флешмоб сценарийі":          ("«Наурыз флешмобы»", "«Флешмоб Наурыз»"),
+    "Шу оркестрі":                ("«Көктем, 5–6 жас»", "«Весна, 5–6 лет»"),
+    "Наурыз сценарийі":           ("«Наурыз мейрамы, ересек топ»", "«Праздник Наурыз, старшая группа»"),
+    "Жаңа жыл сценарийі":         ("«Аяз ата қонаққа келді»", "«Дед Мороз в гостях»"),
+    "Туған күн сценарийі":        ("«Туған күн, ортаңғы топ»", "«День рождения, средняя группа»"),
+    "Бітіру кеші":                ("«Қош бол, балабақша!»", "«Прощай, детский сад!»"),
+    "Утренник":                   ("«Күз мерекесі»", "«Осенний праздник»"),
+    "Ашық есік күні":             ("«Музыкалық сабақ көрсетілімі»", "«Показ музыкального занятия»"),
+    "Ата-ана жиналысы":           ("«Баланың музыкалық дамуы»", "«Музыкальное развитие ребёнка»"),
+}
+
+
+def _topic_prompt(mat) -> str:
+    example = _TOPIC_EXAMPLES.get(mat.name)
+    if example and mat.mtype == MType.TEXT:
+        return f"✏️ *Тақырыпты жазыңыз / Введите тему*\n\n_Мысалы: {example[0]}_\n_Например: {example[1]}_"
+    return _TYPE_PROMPTS[mat.mtype]
+
+
+def _image_error_text(exc: Exception) -> str:
+    """Reason a picture failed, in plain words for the teacher."""
+    return getattr(exc, "user_message", None) or generators.describe_image_error(exc)
 
 
 async def _send_tarif_cards(chat_id: int, bot):
@@ -418,6 +469,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "noop":
         return
 
+    # Leaving the AI assistant ends question mode
+    if data != "ask":
+        context.user_data.pop("waiting_question", None)
+
     # ── Language selection ──
     if data.startswith("lang:"):
         lang = data.split(":")[1]
@@ -436,6 +491,30 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "main_menu":
         await query.edit_message_text(
             MAIN_MENU_TEXT, reply_markup=main_menu_kb(), parse_mode="Markdown"
+        )
+
+    # ── AI assistant ──
+    elif data == "ask":
+        ensure_user(update.effective_user)
+        allowed, reason = can_ask(uid)
+        if not allowed:
+            await query.edit_message_text(
+                _ask_denied_text(reason),
+                reply_markup=upgrade_kb() if reason == "no_plan" else ask_kb(),
+                parse_mode="Markdown",
+            )
+            return
+        context.user_data.update({"waiting_question": True, "waiting_topic": False})
+        left = ASK_DAILY_LIMIT - get_ask_used(uid)
+        await query.edit_message_text(
+            "💬 *Сұрағыңызды жазыңыз*\n"
+            "_Напишите ваш вопрос_\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n"
+            "Музыка сабағы, әдістеме, репертуар туралы кез келген сұрақ — "
+            "қай тілде жазсаңыз, сол тілде жауап беремін.\n\n"
+            f"📊 Бүгін қалды: *{left}/{ASK_DAILY_LIMIT}*",
+            reply_markup=ask_kb(),
+            parse_mode="Markdown",
         )
 
     elif data == "tarif":
@@ -555,7 +634,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"{_TYPE_ICONS[mat.mtype]} *{mat.name}*\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
             f"📍 {section_label}\n\n"
-            f"{_TYPE_PROMPTS[mat.mtype]}",
+            f"{_topic_prompt(mat)}",
             reply_markup=back_to_list_kb(section, page),
             parse_mode="Markdown",
         )
@@ -858,6 +937,53 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
+def _ask_denied_text(reason: str) -> str:
+    if reason == "no_plan":
+        return (
+            "🔒 *Сұрақ қою* тек белсенді тарифпен қолжетімді.\n"
+            "_Доступно только при активном тарифе (Базалық, Стандарт, Премиум)._"
+        )
+    return (
+        f"⚠️ Бүгінгі сұрақ лимиті аяқталды ({ASK_DAILY_LIMIT}/күн). Ертең қайта сұраңыз.\n"
+        "_Дневной лимит вопросов исчерпан, попробуйте завтра._"
+    )
+
+
+async def _answer_question(update: Update, context: ContextTypes.DEFAULT_TYPE, uid: int):
+    """AI assistant: answer a free-form question with Gemini (limit: ASK_DAILY_LIMIT per day)."""
+    allowed, reason = can_ask(uid)
+    if not allowed:
+        context.user_data["waiting_question"] = False
+        await update.message.reply_text(
+            _ask_denied_text(reason),
+            reply_markup=upgrade_kb() if reason == "no_plan" else ask_kb(),
+            parse_mode="Markdown",
+        )
+        return
+    question = update.message.text.strip()
+    msg = await update.message.reply_text("🤔 Жауап дайындалуда… / Готовлю ответ…")
+    try:
+        answer = await generators.gen_answer(question)
+    except Exception as e:
+        logger.error("gen_answer error: %s", e, exc_info=True)
+        await msg.delete()
+        await update.message.reply_text(
+            "⚠️ Жауап алу мүмкін болмады, сәлден соң қайталаңыз. Лимит жұмсалған жоқ.\n"
+            "_Не удалось получить ответ, повторите позже. Лимит не потрачен._",
+            reply_markup=ask_kb(), parse_mode="Markdown",
+        )
+        return
+    record_ask(uid)
+    await msg.delete()
+    for part in generators.split_long_message(answer, 4000):
+        await update.message.reply_text(part)
+    left = ASK_DAILY_LIMIT - get_ask_used(uid)
+    await update.message.reply_text(
+        f"📊 Бүгін қалды: *{left}/{ASK_DAILY_LIMIT}*\n✍️ Келесі сұрағыңызды жазыңыз.",
+        reply_markup=ask_kb(), parse_mode="Markdown",
+    )
+
+
 def _poster_access_note(what: str, allowed: bool, reason: str) -> str:
     """Message for a picture-enabled material when the user cannot get pictures."""
     if reason == "no_poster_access":
@@ -883,8 +1009,11 @@ async def _send_visual_aid(update, uid: int, section: str, material_name: str, t
             photo=io.BytesIO(img_bytes), caption=f"🖼️ {material_name} — {topic}"
         )
     except Exception as e:
-        logger.error("visual aid image error: %s", e, exc_info=True)
-        await update.message.reply_text("⚠️ Сурет жасалмады, мәтін жоғарыда. Кейінірек қайталаңыз.")
+        # ImageGenError was already logged in full (status, body) by generators.gen_poster
+        logger.error("visual aid image error: %s", e, exc_info=not isinstance(e, generators.ImageGenError))
+        await update.message.reply_text(
+            f"⚠️ Сурет жасалмады, мәтін жоғарыда.\n{_image_error_text(e)}", parse_mode="Markdown"
+        )
 
 
 # ─── Payment helper ───────────────────────────────────────────────────────────
@@ -896,7 +1025,7 @@ async def _show_payment(query, update, context, plan: str):
     plan_icon = {"basic": "🥉", "standard": "🥈", "premium": "🥇"}.get(plan, "💎")
 
     features = {
-        "basic":    "📝 Мәтін — шексіз\n   └ Мектеп: 21 + Балабақша: 27 материал",
+        "basic":    f"📝 Мәтін — шексіз\n   └ Мектеп: {_MEKTEP_BASIC} + Балабақша: {_BALA_BASIC} материал\n   └ 💬 Сұрақ қою — {ASK_DAILY_LIMIT}/күн",
         "standard": "📝 Мәтін — шексіз\n   └ 🖼️ Постер, Көрнекілік, Презентация суреттермен — 30/ай\n   └ 📁 Портфолио",
         "premium":  "📝 Мәтін — шексіз\n   └ 🖼️ Постер, Көрнекілік, Презентация суреттермен — 50/ай\n   └ 🎵 Музыка MP3 — 10/ай",
     }
@@ -981,6 +1110,10 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         return
 
+    if context.user_data.get("waiting_question"):
+        await _answer_question(update, context, uid)
+        return
+
     if not context.user_data.get("waiting_topic"):
         await update.message.reply_text("👇 Материал таңдаңыз:", reply_markup=main_menu_kb())
         return
@@ -1017,10 +1150,10 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             if output == "pptx":
                 slides = await generators.gen_slides(section, topic, lang)
                 # Pictures need poster quota (Стандарт/Премиум); one presentation costs one unit
-                images = {}
+                images, image_error = {}, ""
                 poster_ok, poster_reason = check_quota(uid, "poster")
                 if poster_ok:
-                    images = await generators.gen_slide_images(section, topic, slides)
+                    images, image_error = await generators.gen_slide_images(section, topic, slides)
                     if images:
                         record_usage(uid, "poster")
                 pptx_buf, pptx_name = pptx_gen.build_pptx(
@@ -1054,10 +1187,11 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                     caption=f"📊 {topic} — {len(slides)} слайд" + (" • 🖼️ суреттермен" if images else ""),
                 )
                 if not images:
-                    await update.message.reply_text(
-                        _poster_access_note("Презентацияға сурет қосу", poster_ok, poster_reason),
-                        parse_mode="Markdown",
-                    )
+                    if poster_ok:
+                        note = f"⚠️ Презентацияға сурет қосылмады.\n{image_error}"
+                    else:
+                        note = _poster_access_note("Презентацияға сурет қосу", poster_ok, poster_reason)
+                    await update.message.reply_text(note, parse_mode="Markdown")
             elif output == "notes":
                 if notes_png:
                     await update.message.reply_photo(
@@ -1120,10 +1254,10 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                 parse_mode="Markdown",
             )
         except Exception as e:
-            logger.error("gen_poster error: %s", e, exc_info=True)
+            logger.error("gen_poster error: %s", e, exc_info=not isinstance(e, generators.ImageGenError))
             await msg.delete()
             await update.message.reply_text(
-                f"⚠️ Постер жасалмады, қайталаңыз.\n`{e}`",
+                f"⚠️ Сурет жасалмады.\n{_image_error_text(e)}",
                 reply_markup=main_menu_kb(), parse_mode="Markdown",
             )
 

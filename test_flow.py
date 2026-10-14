@@ -70,7 +70,7 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
     async def test_presentation_basic_is_text_only_with_upgrade_hint(self):
         self._user(1, "basic")
         upd, ctx = _update(1, "Домбыра"), _ctx("Презентация", "pptx")
-        gen_images = AsyncMock(return_value={})
+        gen_images = AsyncMock(return_value=({}, ""))
         with patch.object(handlers.generators, "gen_slides", AsyncMock(return_value=SLIDES)),              patch.object(handlers.generators, "gen_slide_images", gen_images):
             await handlers.text_message_handler(upd, ctx)
         upd.message.reply_document.assert_awaited_once()
@@ -88,7 +88,7 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
         self._user(5, "standard")
         upd, ctx = _update(5, "Домбыра"), _ctx("Презентация", "pptx")
         with patch.object(handlers.generators, "gen_slides", AsyncMock(return_value=SLIDES)),              patch.object(handlers.generators, "gen_slide_images",
-                          AsyncMock(return_value={-1: png.getvalue(), 0: png.getvalue()})):
+                          AsyncMock(return_value=({-1: png.getvalue(), 0: png.getvalue()}, ""))):
             await handlers.text_message_handler(upd, ctx)
         doc = upd.message.reply_document.await_args.kwargs["document"]
         prs = Presentation(_io.BytesIO(doc.getvalue()))
