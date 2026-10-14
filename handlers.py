@@ -463,6 +463,13 @@ def _lookup_name_ru(section: str, material_name: str) -> str:
     return ""
 
 
+def _lookup_output(section: str, material_name: str) -> str:
+    for mat in SECTIONS.get(section, {}).get("materials", []):
+        if mat.name == material_name:
+            return mat.output
+    return "text"
+
+
 # ─── Callback handler ─────────────────────────────────────────────────────────
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -694,6 +701,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "material_name": item["material_name"],
             "material_name_ru": name_ru,
             "material_type": mtype,
+            "material_output": _lookup_output(item["section"], item["material_name"]),
             "page": 0,
             "waiting_topic": True,
             "regen_topic": item["topic"],
@@ -772,6 +780,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "material_name": item["material_name"],
             "material_name_ru": name_ru,
             "material_type": mtype,
+            "material_output": _lookup_output(item["section"], item["material_name"]),
             "page": 0,
             "waiting_topic": True,
         })

@@ -49,6 +49,17 @@ class MaterialTests(unittest.TestCase):
                     self.assertEqual(by_name[name].min_plan, plan, name)
                     self.assertTrue(by_name[name].name_ru, name)
 
+    def test_song_and_exercise_materials_come_with_sheet_music(self):
+        def out(materials, name):
+            return next(m.output for m in materials if m.name == name)
+
+        for name in ("Ноталар", "Музыкалық диктант", "Дауыс жаттығулары", "Ән сөздері", "Балалар әндері"):
+            self.assertEqual(out(MEKTEP_MATERIALS, name), "notes", name)
+        for name in ("Ән сөздері", "Ұйқы алдындағы ән", "Таңғы ән"):
+            self.assertEqual(out(BALABAQSHA_MATERIALS, name), "notes", name)
+        # regenerating from history keeps the sheet-music output
+        self.assertEqual(handlers._lookup_output("mektep", "Музыкалық диктант"), "notes")
+
     def test_names_unique_within_section(self):
         for materials in (MEKTEP_MATERIALS, BALABAQSHA_MATERIALS):
             names = [m.name for m in materials]
