@@ -1,6 +1,8 @@
-"""Renders a simple melody as sheet music on a "music notebook" page (PNG)."""
+"""Renders a simple melody as hand-written sheet music on a "music notebook" page (PNG)."""
 import io
+import math
 import os
+import random
 import re
 
 from PIL import Image, ImageDraw, ImageFont
@@ -9,6 +11,7 @@ _FONT_DIR = os.path.join(os.path.dirname(__file__), "fonts")
 _TEXT = os.path.join(_FONT_DIR, "DejaVuSans.ttf")
 _TEXT_BOLD = os.path.join(_FONT_DIR, "DejaVuSans-Bold.ttf")
 _MUSIC = os.path.join(_FONT_DIR, "NotoMusic-Regular.ttf")
+_HAND = os.path.join(_FONT_DIR, "Caveat.ttf")   # handwriting font (OFL), has all Kazakh letters
 
 _LETTER = {"C": 0, "D": 1, "E": 2, "F": 3, "G": 4, "A": 5, "B": 6}
 ALLOWED_DURATIONS = (4.0, 3.0, 2.0, 1.5, 1.0, 0.75, 0.5, 0.25)  # in quarter notes
@@ -16,7 +19,7 @@ _BOTTOM_STEP = 30   # E4: bottom line of the treble staff
 _TOP_STEP = 38      # F5: top line
 
 _PAPER = (253, 249, 236)
-_INK = (35, 35, 45)
+_INK = (28, 38, 105)          # blue pen
 _MARGIN = (225, 140, 140)
 
 _REST_GLYPH = {4.0: "\U0001D13B", 2.0: "\U0001D13C", 1.0: "\U0001D13D", 0.5: "\U0001D13E", 0.25: "\U0001D13F"}
@@ -56,6 +59,48 @@ def _font(path, size):
     return ImageFont.truetype(path, size)
 
 
+def _hand(size, weight=400):
+    font = ImageFont.truetype(_HAND, size)
+    try:
+        font.set_variation_by_axes([weight])
+    except (OSError, AttributeError):   # FreeType without variation support: keep Regular
+        pass
+    return font
+
+
+class _Pen:
+    """ImageDraw wrapper whose lines and ellipses wobble slightly, like drawn with a pen."""
+
+    def __init__(self, draw, seed):
+        self._d = draw
+        self._r = random.Random(seed)
+
+    def _j(self, amp):
+        return self._r.uniform(-amp, amp)
+
+    def line(self, xy, fill=None, width=1):
+        pts = [tuple(p) for p in xy]
+        out = [pts[0]]
+        for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+            n = max(1, int(math.hypot(x1 - x0, y1 - y0) // 45))
+            out += [(x0 + (x1 - x0) * i / n, y0 + (y1 - y0) * i / n) for i in range(1, n + 1)]
+        wobble = [(x + self._j(0.9), y + self._j(0.9)) for x, y in out]
+        self._d.line(wobble, fill=fill, width=width, joint="curve")
+
+    def ellipse(self, box, fill=None, outline=None, width=1):
+        def jit():
+            return [c + self._j(0.8) for c in box]
+
+        if fill is not None:
+            self._d.ellipse(jit(), fill=fill)
+        if outline is not None:
+            self._d.ellipse(jit(), outline=outline, width=width)
+            self._d.ellipse(jit(), outline=outline, width=max(1, width - 1))   # second pass: pen pressure
+
+    def text(self, *args, **kwargs):
+        self._d.text(*args, **kwargs)
+
+
 def _is_rest(note) -> bool:
     return str(note.get("p", "")).strip().upper() in ("R", "REST")
 
@@ -74,7 +119,7 @@ def render_notation(melody: dict) -> bytes:
     system_h = 300
     footer_h = 70
 
-    lyric_font = _font(_TEXT, 21)
+    lyric_font = _hand(34)
     measures = melody["measures"]
     scratch = ImageDraw.Draw(Image.new("RGB", (10, 10)))
 
@@ -98,7 +143,7 @@ def render_notation(melody: dict) -> bytes:
 
     H = header_h + system_h * len(systems) + footer_h
     img = Image.new("RGB", (W, H), _PAPER)
-    d = ImageDraw.Draw(img)
+    d = _Pen(ImageDraw.Draw(img), seed=str(melody.get("title")))
 
     # Notebook look: margin line and punch holes
     d.line([(78, 0), (78, H)], fill=_MARGIN, width=3)
@@ -106,14 +151,14 @@ def render_notation(melody: dict) -> bytes:
         d.ellipse([22, y - 14, 50, y + 14], fill=(228, 224, 210), outline=(205, 200, 185))
 
     # Header
-    title_font = _font(_TEXT_BOLD, 46)
-    sub_font = _font(_TEXT, 25)
-    d.text((left, 40), str(melody.get("title") or "Ноталар"), font=title_font, fill=_INK)
+    title_font = _hand(76, 700)
+    sub_font = _hand(38)
+    d.text((left, 28), str(melody.get("title") or "Ноталар"), font=title_font, fill=_INK)
     num, den = melody["time"]
     d.text(
-        (left, 108),
+        (left, 112),
         f"Нота дәптері  •  Өлшем: {num}/{den}  •  Темп: {melody.get('tempo', 90)} BPM",
-        font=sub_font, fill=(95, 95, 110),
+        font=sub_font, fill=(90, 95, 135),
     )
 
     clef_font = _font(_MUSIC, int(s * 7.2))
@@ -159,7 +204,7 @@ def render_notation(melody: dict) -> bytes:
                 _draw_note(d, note, cx, top_y, bottom_y, s, step_y, rest_font, acc_font)
                 lyric = note.get("l") or ""
                 if lyric and not _is_rest(note):
-                    d.text((cx, bottom_y + s * 4.9), lyric, font=lyric_font, fill=(60, 60, 75), anchor="mm")
+                    d.text((cx, bottom_y + s * 4.9), lyric, font=lyric_font, fill=(45, 55, 110), anchor="mm")
                 nx += slot
             x += bar_w
             last = mi == len(measures) - 1
@@ -169,8 +214,8 @@ def render_notation(melody: dict) -> bytes:
             else:
                 d.line([(x, top_y), (x, bottom_y)], fill=_INK, width=3)
 
-    foot = _font(_TEXT, 20)
-    d.text((W - right, H - 38), "MuzMugalim Bot  |  @muzmugalim", font=foot, fill=(150, 150, 160), anchor="rs")
+    foot = _hand(28)
+    d.text((W - right, H - 36), "MuzMugalim Bot  |  @muzmugalim", font=foot, fill=(140, 145, 170), anchor="rs")
 
     buf = io.BytesIO()
     img.save(buf, "PNG")
