@@ -220,6 +220,13 @@ def admin_kb() -> InlineKeyboardMarkup:
     ])
 
 
+def activate_kb(user_id: int, plan: str) -> InlineKeyboardMarkup:
+    """Under a payment request sent to the admin: one tap activates the tariff for 30 days."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ Белсендіру", callback_data=f"admin:activate:{user_id}:{plan}")],
+    ])
+
+
 def broadcast_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("📢 Барлығына / Всем",       callback_data="broadcast:all")],

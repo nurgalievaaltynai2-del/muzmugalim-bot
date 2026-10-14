@@ -224,6 +224,49 @@ class AskHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("waiting_question", ctx.user_data)
 
 
+class ActivateButtonTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        with sqlite3.connect(storage.DB_FILE) as c:
+            c.execute("DELETE FROM users")
+
+    def _press(self, presser, data):
+        query = MagicMock()
+        query.data = data
+        query.answer = AsyncMock()
+        query.edit_message_text = AsyncMock()
+        query.message.chat_id = presser
+        query.message.text_html = "💳 <b>Жаңа төлем сұранысы</b>"
+        bot = MagicMock()
+        bot.send_message = AsyncMock()
+        ctx = SimpleNamespace(user_data={}, bot=bot)
+        return query, ctx, SimpleNamespace(callback_query=query, effective_user=_tg(presser))
+
+    async def test_payment_request_carries_activate_button(self):
+        storage.ensure_user(_tg(40))
+        query, ctx, upd = self._press(40, "tarif_select:premium")
+        await handlers.button_handler(upd, ctx)
+        kb = ctx.bot.send_message.await_args.kwargs["reply_markup"]
+        self.assertEqual(kb.inline_keyboard[0][0].text, "✅ Белсендіру")
+        self.assertEqual(kb.inline_keyboard[0][0].callback_data, "admin:activate:40:premium")
+
+    async def test_admin_tap_activates_and_notifies_user(self):
+        storage.ensure_user(_tg(41))
+        query, ctx, upd = self._press(999, "admin:activate:41:standard")
+        await handlers.button_handler(upd, ctx)
+        with sqlite3.connect(storage.DB_FILE) as c:
+            self.assertEqual(c.execute("SELECT plan FROM users WHERE user_id=41").fetchone()[0], "standard")
+        self.assertEqual(ctx.bot.send_message.await_args.args[0], 41)
+        self.assertIn("Белсендірілді", query.edit_message_text.await_args.args[0])
+
+    async def test_non_admin_cannot_activate(self):
+        storage.ensure_user(_tg(42))
+        query, ctx, upd = self._press(42, "admin:activate:42:premium")
+        await handlers.button_handler(upd, ctx)
+        with sqlite3.connect(storage.DB_FILE) as c:
+            self.assertEqual(c.execute("SELECT plan FROM users WHERE user_id=42").fetchone()[0], "free")
+        ctx.bot.send_message.assert_not_awaited()
+
+
 def _http_error(status, body):
     req = httpx.Request("POST", "https://api.openai.com/v1/images/generations")
     return httpx.HTTPStatusError("err", request=req, response=httpx.Response(status, text=body, request=req))

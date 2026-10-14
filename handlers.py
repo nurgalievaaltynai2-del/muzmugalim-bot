@@ -16,7 +16,7 @@ from keyboards import (
     tarif_card_kb, upgrade_kb, payment_kb, result_kb,
     profile_kb, history_kb, hist_item_kb,
     favorites_kb, fav_item_kb,
-    admin_kb, broadcast_kb, lang_kb,
+    admin_kb, broadcast_kb, lang_kb, activate_kb,
 )
 from storage import (
     init_db,
@@ -271,6 +271,24 @@ async def favorites_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def _activate_and_notify(bot, uid: int, plan: str, days: int = 30) -> bool:
+    """Activate a tariff and tell the user. False if the plan is unknown."""
+    if not activate_plan(uid, plan, days):
+        return False
+    try:
+        await bot.send_message(
+            uid,
+            f"🎉 *Тарифіңіз белсендірілді!*\n\n"
+            f"📦 {TARIFFS[plan]['name']} тарифі {days} күнге қосылды.\n"
+            f"Пайдалануды бастаңыз 👇",
+            parse_mode="Markdown",
+            reply_markup=main_menu_kb(),
+        )
+    except Exception:
+        logger.warning("could not notify user %s about activation", uid, exc_info=True)
+    return True
+
+
 async def activate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("⛔ Рұқсат жоқ.")
@@ -286,23 +304,11 @@ async def activate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     plan = args[1].lower()
     days = int(args[2]) if len(args) >= 3 else 30
-    if activate_plan(uid, plan, days):
+    if await _activate_and_notify(context.bot, uid, plan, days):
         await update.message.reply_text(
             f"✅ `{uid}` пайдаланушысына *{plan}* тарифі {days} күнге белсендірілді.",
             parse_mode="Markdown",
         )
-        try:
-            plan_name = TARIFFS[plan]["name"]
-            await context.bot.send_message(
-                uid,
-                f"🎉 *Тарифіңіз белсендірілді!*\n\n"
-                f"📦 {plan_name} тарифі {days} күнге қосылды.\n"
-                f"Пайдалануды бастаңыз 👇",
-                parse_mode="Markdown",
-                reply_markup=main_menu_kb(),
-            )
-        except Exception:
-            pass
     else:
         valid = ", ".join(TARIFFS.keys())
         await update.message.reply_text(f"❌ Белгісіз тариф. Қолжетімдісі: {valid}")
@@ -902,6 +908,20 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=admin_kb(), parse_mode="Markdown",
         )
 
+    elif data.startswith("admin:activate:"):
+        if uid != ADMIN_ID:
+            await query.answer("⛔", show_alert=True)
+            return
+        _, _, target_str, plan = data.split(":")
+        target = int(target_str)
+        if await _activate_and_notify(context.bot, target, plan, 30):
+            await query.edit_message_text(
+                f"{query.message.text_html}\n\n✅ <b>Белсендірілді</b>: {TARIFFS[plan]['name']}, 30 күн",
+                parse_mode="HTML",
+            )
+        else:
+            await query.answer("❌ Белгісіз тариф", show_alert=True)
+
     elif data == "admin:giveplan":
         if uid != ADMIN_ID:
             await query.answer("⛔", show_alert=True)
@@ -1059,6 +1079,7 @@ async def _show_payment(query, update, context, plan: str):
             f"📦 Тариф: *{name}* — {price:,} ₸\n\n"
             f"Белсендіру: `/activate {tg_user.id} {plan}`",
             parse_mode="Markdown",
+            reply_markup=activate_kb(tg_user.id, plan),
         )
     except Exception:
         pass
